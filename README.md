@@ -102,18 +102,3 @@ npm run dev
 - 추천 점수는 거리, 병상, 중증도 수용 가능 여부, 예상 대기시간 기반의 단순 공식 사용
 - 출발 등록은 실제 예약 확정이 아니라 도착 예정 환자 등록 시뮬레이션
 
-## Figma / SuperPass 반영
-
-- `/Users/kangdaeun/Downloads/SuperPass`는 Figma import 기반 프론트 레퍼런스로 복사해 두었음
-- 현재 실행 엔트리는 `frontend/src/App.tsx` 이하의 `SuperSave` 구조
-- 이후 실제 Figma 화면을 주시면 현재 `src/components` 계층 위에서 시각 요소를 정밀하게 다시 맞출 수 있음
-
-## 이후 실제 연동 포인트
-
-- 백엔드:
-  - [`backend/src/main/java/com/supersave/backend/ai/service/AiGuideService.java`](/Users/kangdaeun/Desktop/강대운/단국대/3-1학기/문제해결프로그래밍/supersave/backend/src/main/java/com/supersave/backend/ai/service/AiGuideService.java): Gemini adapter 연결
-  - [`backend/src/main/resources/application-mock.yml`](/Users/kangdaeun/Desktop/강대운/단국대/3-1학기/문제해결프로그래밍/supersave/backend/src/main/resources/application-mock.yml): mock 전용 설정
-  - `hospital/repository`: 공공데이터 기반 수집/캐시 계층으로 교체
-- 프론트:
-  - [`frontend/src/components/recommendation/MapPlaceholder.tsx`](/Users/kangdaeun/Desktop/강대운/단국대/3-1학기/문제해결프로그래밍/supersave/frontend/src/components/recommendation/MapPlaceholder.tsx): Kakao Map 교체 지점
-  - [`frontend/src/api/index.ts`](/Users/kangdaeun/Desktop/강대운/단국대/3-1학기/문제해결프로그래밍/supersave/frontend/src/api/index.ts): mock/live 분기 지점
