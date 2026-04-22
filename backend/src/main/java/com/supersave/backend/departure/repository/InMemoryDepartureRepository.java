@@ -21,6 +21,7 @@ public class InMemoryDepartureRepository implements DepartureRepository {
                 registration.userLatitude(),
                 registration.userLongitude(),
                 registration.etaMinutes(),
+                registration.requesterType(),
                 registration.severityLevel(),
                 registration.symptomSummary(),
                 registration.createdAt()

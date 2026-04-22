@@ -8,11 +8,10 @@ public class SpaForwardingController {
 
     @GetMapping(value = {
             "/",
-            "/alerts",
-            "/ai-guide",
-            "/departures/**",
-            "/emergency-search",
-            "/hospitals/**"
+            "/dashboard",
+            "/hospital/**",
+            "/transfer",
+            "/hospital-manager"
     })
     public String forward() {
         return "forward:/index.html";

@@ -1,5 +1,6 @@
 package com.supersave.backend.departure.dto;
 
+import com.supersave.backend.departure.entity.RequesterType;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
@@ -12,6 +13,7 @@ public record DepartureRequest(
         @NotNull @DecimalMin("-90.0") @DecimalMax("90.0") Double userLatitude,
         @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") Double userLongitude,
         @Min(1) Integer etaMinutes,
+        @NotNull RequesterType requesterType,
         @NotBlank String severityLevel,
         @Size(max = 500) String symptomSummary
 ) {

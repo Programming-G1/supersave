@@ -31,6 +31,7 @@ interface ArrivingPatient {
   name: string;
   age: number;
   gender: 'male' | 'female';
+  requesterType: 'paramedic' | 'patient' | 'guardian';
   severity: string;
   symptoms: string;
   eta: number; // 도착 예정 시간 (분)
@@ -38,6 +39,12 @@ interface ArrivingPatient {
   registeredAt: string;
   status: 'pending' | 'accepted' | 'cancelled';
 }
+
+const requesterTypeLabels = {
+  paramedic: '구급대원',
+  patient: '환자 본인',
+  guardian: '보호자',
+} as const;
 
 export default function HospitalManager() {
   const [selectedHospital, setSelectedHospital] = useState(mockHospitals[0]);
@@ -52,6 +59,7 @@ export default function HospitalManager() {
       name: '김철수',
       age: 45,
       gender: 'male',
+      requesterType: 'paramedic',
       severity: 'KTAS 2',
       symptoms: '급성 흉통, 호흡곤란',
       eta: 8,
@@ -64,10 +72,11 @@ export default function HospitalManager() {
       name: '이영희',
       age: 62,
       gender: 'female',
+      requesterType: 'guardian',
       severity: 'KTAS 3',
       symptoms: '낙상 후 우측 고관절 통증',
       eta: 15,
-      paramedic: '서울 119 구급대 5팀',
+      paramedic: '보호자 직접 등록',
       registeredAt: '2026-04-06 14:30',
       status: 'pending',
     },
@@ -76,6 +85,7 @@ export default function HospitalManager() {
       name: '박민수',
       age: 28,
       gender: 'male',
+      requesterType: 'paramedic',
       severity: 'KTAS 1',
       symptoms: '교통사고, 다발성 외상',
       eta: 5,
@@ -88,10 +98,11 @@ export default function HospitalManager() {
       name: '최지은',
       age: 35,
       gender: 'female',
+      requesterType: 'patient',
       severity: 'KTAS 2',
       symptoms: '뇌졸중 의심 증상',
       eta: 12,
-      paramedic: '서울 119 구급대 7팀',
+      paramedic: '환자 본인 직접 등록',
       registeredAt: '2026-04-06 14:18',
       status: 'pending',
     },
@@ -249,6 +260,9 @@ export default function HospitalManager() {
                       <Badge variant="outline" className="text-xs">
                         {patient.age}세 / {patient.gender === 'male' ? '남' : '여'}
                       </Badge>
+                      <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-300">
+                        {requesterTypeLabels[patient.requesterType]}
+                      </Badge>
                       {patient.status === 'pending' && (
                         <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
                           대기중
@@ -280,7 +294,8 @@ export default function HospitalManager() {
                     </div>
 
                     <div className="text-xs text-gray-500 space-y-1">
-                      <p>구급대: {patient.paramedic}</p>
+                      <p>요청 주체: {requesterTypeLabels[patient.requesterType]}</p>
+                      <p>{patient.requesterType === 'paramedic' ? '구급대' : '등록 채널'}: {patient.paramedic}</p>
                       <p>등록 시각: {patient.registeredAt}</p>
                     </div>
                   </div>

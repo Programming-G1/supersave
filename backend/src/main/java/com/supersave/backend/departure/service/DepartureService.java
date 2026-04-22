@@ -27,13 +27,14 @@ public class DepartureService {
 
         DepartureRegistration saved = departureRepository.save(new DepartureRegistration(
                 null, hospital.id(), request.userLatitude(), request.userLongitude(), etaMinutes,
-                request.severityLevel(), request.symptomSummary(), LocalDateTime.now()
+                request.requesterType(), request.severityLevel(), request.symptomSummary(), LocalDateTime.now()
         ));
 
         return new DepartureResponse(
                 saved.id(),
                 hospital.id(),
                 hospital.name(),
+                saved.requesterType(),
                 etaMinutes,
                 hospital.currentPatients() + hospital.incomingPatients(),
                 hospital.estimatedWaitTimeMinutes(),
