@@ -90,6 +90,7 @@ export async function registerDeparture(request: DepartureRequest) {
     registrationId: Date.now(),
     hospitalId: hospital.id,
     hospitalName: hospital.name,
+    requesterType: request.requesterType,
     etaMinutes: request.etaMinutes ?? 12,
     queuePosition: hospital.currentPatients + hospital.incomingPatients + 1,
     projectedWaitMinutes: hospital.estimatedWaitTimeMinutes + 5,

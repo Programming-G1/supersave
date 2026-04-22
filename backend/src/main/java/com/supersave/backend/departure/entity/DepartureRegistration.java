@@ -8,6 +8,7 @@ public record DepartureRegistration(
         double userLatitude,
         double userLongitude,
         int etaMinutes,
+        RequesterType requesterType,
         String severityLevel,
         String symptomSummary,
         LocalDateTime createdAt
