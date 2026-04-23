@@ -8,7 +8,7 @@ public class SpaForwardingController {
 
     @GetMapping(value = {
             "/",
-            "/dashboard",
+            "/dashboard/**",
             "/hospital/**",
             "/transfer",
             "/hospital-manager"
