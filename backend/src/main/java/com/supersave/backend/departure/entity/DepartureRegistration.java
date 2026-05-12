@@ -11,6 +11,7 @@ public record DepartureRegistration(
         RequesterType requesterType,
         String severityLevel,
         String symptomSummary,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        DepartureStatus status
 ) {
 }

@@ -4,8 +4,10 @@ import type {
   AiGuideRequest,
   AiGuideResponse,
   AlertItem,
+  DepartureQueueItem,
   DepartureRequest,
   DepartureResponse,
+  DepartureStatus,
   HospitalDetail,
   HospitalSummary,
   RecommendationRequest,
@@ -14,6 +16,41 @@ import type {
 
 const wait = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 const toSummary = (hospital: HospitalDetail): HospitalSummary => ({ ...hospital });
+let mockDepartureQueue: DepartureQueueItem[] = [
+  {
+    registrationId: 1001,
+    hospitalId: 1,
+    hospitalName: '서울대학교병원 권역응급의료센터',
+    requesterType: 'PARAMEDIC',
+    etaMinutes: 8,
+    severityLevel: 'KTAS2',
+    symptomSummary: '급성 흉통, 호흡곤란',
+    createdAt: '2026-04-06T14:23:00',
+    status: 'PENDING',
+  },
+  {
+    registrationId: 1002,
+    hospitalId: 1,
+    hospitalName: '서울대학교병원 권역응급의료센터',
+    requesterType: 'GUARDIAN',
+    etaMinutes: 15,
+    severityLevel: 'KTAS3',
+    symptomSummary: '낙상 후 우측 고관절 통증',
+    createdAt: '2026-04-06T14:30:00',
+    status: 'PENDING',
+  },
+  {
+    registrationId: 1003,
+    hospitalId: 4,
+    hospitalName: '서울아산병원 응급실',
+    requesterType: 'PATIENT',
+    etaMinutes: 12,
+    severityLevel: 'KTAS2',
+    symptomSummary: '뇌졸중 의심 증상',
+    createdAt: '2026-04-06T14:18:00',
+    status: 'ACCEPTED',
+  },
+];
 
 function requireHospital(id?: number) {
   const hospital = id
@@ -86,7 +123,7 @@ export async function registerDeparture(request: DepartureRequest) {
 
   await wait();
   const hospital = requireHospital(request.hospitalId);
-  return {
+  const response = {
     registrationId: Date.now(),
     hospitalId: hospital.id,
     hospitalName: hospital.name,
@@ -97,6 +134,48 @@ export async function registerDeparture(request: DepartureRequest) {
     advisory: '가상 예약 시뮬레이션 결과이며 실제 접수 확정이 아닙니다.',
     createdAt: new Date().toISOString(),
   };
+
+  mockDepartureQueue = [
+    {
+      registrationId: response.registrationId,
+      hospitalId: response.hospitalId,
+      hospitalName: response.hospitalName,
+      requesterType: response.requesterType,
+      etaMinutes: response.etaMinutes,
+      severityLevel: request.severityLevel,
+      symptomSummary: request.symptomSummary,
+      createdAt: response.createdAt,
+      status: 'PENDING',
+    },
+    ...mockDepartureQueue,
+  ];
+
+  return response;
+}
+
+export async function fetchHospitalDepartures(hospitalId: number) {
+  if (useMockApi) {
+    await wait();
+    return mockDepartureQueue.filter((item) => item.hospitalId === hospitalId);
+  }
+
+  return (await apiClient.get<DepartureQueueItem[]>('/api/departures', { params: { hospitalId } })).data;
+}
+
+export async function updateDepartureStatus(registrationId: number, status: DepartureStatus) {
+  if (useMockApi) {
+    await wait();
+    mockDepartureQueue = mockDepartureQueue.map((item) =>
+      item.registrationId === registrationId ? { ...item, status } : item,
+    );
+    const updated = mockDepartureQueue.find((item) => item.registrationId === registrationId);
+    if (!updated) {
+      throw new Error('출발 요청을 찾을 수 없습니다.');
+    }
+    return updated;
+  }
+
+  return (await apiClient.post<DepartureQueueItem>(`/api/departures/${registrationId}/status`, { status })).data;
 }
 
 export async function requestAiGuide(request: AiGuideRequest) {
