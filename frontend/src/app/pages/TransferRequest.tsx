@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+
+import { useMode } from '../contexts/ModeContext';
+
 import { registerDeparture } from '../../api';
+
 import { mockHospitals, mockPatient } from '../data/mockData';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -22,6 +26,7 @@ import { toast } from 'sonner';
 export default function TransferRequest() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { mode } = useMode();
   const [selectedHospitalId, setSelectedHospitalId] = useState<string | null>(
     location.state?.selectedHospitalId || null
   );
@@ -211,7 +216,7 @@ export default function TransferRequest() {
           <Button variant="outline" onClick={() => setTransferStarted(false)}>
             이송 취소
           </Button>
-          <Button onClick={() => navigate('/')} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={() => navigate(mode ? `/dashboard/${mode}` : '/')} className="bg-blue-600 hover:bg-blue-700">
             대시보드로
           </Button>
         </div>

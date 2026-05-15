@@ -1,5 +1,6 @@
 import { useParams, Link, useNavigate } from 'react-router';
 import { mockHospitals, congestionData } from '../data/mockData';
+import { useMode } from '../contexts/ModeContext';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -21,6 +22,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 export default function HospitalDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { mode } = useMode();
   const hospital = mockHospitals.find((h) => h.id === id);
 
   if (!hospital) {
@@ -29,7 +31,7 @@ export default function HospitalDetail() {
         <AlertCircle className="w-16 h-16 text-gray-400 mb-4" />
         <h2 className="text-xl font-semibold text-gray-900 mb-2">병원을 찾을 수 없습니다</h2>
         <Button asChild>
-          <Link to="/">대시보드로 돌아가기</Link>
+          <Link to={mode ? `/dashboard/${mode}` : "/"}>대시보드로 돌아가기</Link>
         </Button>
       </div>
     );
@@ -409,7 +411,7 @@ export default function HospitalDetail() {
       {/* 하단 액션 버튼 */}
       <div className="flex justify-end gap-4">
         <Button variant="outline" asChild>
-          <Link to="/">목록으로</Link>
+          <Link to={mode ? `/dashboard/${mode}` : "/"}>목록으로</Link>
         </Button>
         <Button
           onClick={() => navigate('/transfer', { state: { selectedHospitalId: hospital.id } })}
