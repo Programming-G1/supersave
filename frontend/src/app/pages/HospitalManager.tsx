@@ -51,6 +51,8 @@ const statusBadgeClassNames: Record<DepartureStatus, string> = {
   CANCELLED: 'bg-red-50 text-red-700 border-red-300',
 };
 
+const hospitalManagerSelectionKey = 'hospitalManager:selectedHospitalId';
+
 function formatSeverityLabel(severityLevel: string) {
   const match = severityLevel.match(/^KTAS(\d)$/);
   if (!match) {
@@ -97,8 +99,10 @@ export default function HospitalManager() {
         if (cancelled) {
           return;
         }
+        const preferredHospitalId = Number(window.localStorage.getItem(hospitalManagerSelectionKey));
+        const hasPreferredHospital = hospitalList.some((hospital) => hospital.id === preferredHospitalId);
         setHospitals(hospitalList);
-        setSelectedHospitalId((current) => current ?? hospitalList[0]?.id ?? null);
+        setSelectedHospitalId((current) => current ?? (hasPreferredHospital ? preferredHospitalId : hospitalList[0]?.id ?? null));
       } catch {
         if (!cancelled) {
           toast.error('병원 목록을 불러오지 못했습니다.');
@@ -122,11 +126,15 @@ export default function HospitalManager() {
       return;
     }
 
+    window.localStorage.setItem(hospitalManagerSelectionKey, String(selectedHospitalId));
+
     const hospitalId = selectedHospitalId;
     let cancelled = false;
 
-    async function loadDepartures() {
-      setLoadingPatients(true);
+    async function loadDepartures(showLoading = true) {
+      if (showLoading) {
+        setLoadingPatients(true);
+      }
       try {
         const departures = await fetchHospitalDepartures(hospitalId);
         if (!cancelled) {
@@ -137,21 +145,27 @@ export default function HospitalManager() {
           toast.error('도착 예정 환자 목록을 불러오지 못했습니다.');
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && showLoading) {
           setLoadingPatients(false);
         }
       }
     }
 
     loadDepartures();
+    const interval = window.setInterval(() => {
+      loadDepartures(false);
+    }, 3000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, [selectedHospitalId]);
 
   const filteredPatients = arrivingPatients.filter((patient) => {
     const normalizedQuery = searchQuery.toLowerCase();
     return (
+      patient.patientName.toLowerCase().includes(normalizedQuery) ||
       patient.symptomSummary.toLowerCase().includes(normalizedQuery) ||
       requesterTypeLabels[patient.requesterType].toLowerCase().includes(normalizedQuery) ||
       `${patient.registrationId}`.includes(normalizedQuery)
@@ -298,7 +312,7 @@ export default function HospitalManager() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="mb-2 flex items-center gap-3">
-                      <h3 className="font-semibold text-gray-900">도착 요청 #{patient.registrationId}</h3>
+                      <h3 className="font-semibold text-gray-900">{patient.patientName}</h3>
                       <Badge className={`${getSeverityColor(patient.severityLevel)} text-white`}>
                         {formatSeverityLabel(patient.severityLevel)}
                       </Badge>
@@ -322,6 +336,7 @@ export default function HospitalManager() {
                     </div>
 
                     <div className="space-y-1 text-xs text-gray-500">
+                      <p>요청 번호: #{patient.registrationId}</p>
                       <p>요청 주체: {requesterTypeLabels[patient.requesterType]}</p>
                       <p>등록 채널: {requesterChannelLabels[patient.requesterType]}</p>
                       <p>등록 시각: {formatRegisteredAt(patient.createdAt)}</p>
@@ -379,7 +394,8 @@ export default function HospitalManager() {
             <AlertDialogDescription>
               {selectedPatient && (
                 <div className="mt-2 space-y-2">
-                  <p className="font-semibold text-gray-900">도착 요청 #{selectedPatient.registrationId}</p>
+                  <p className="font-semibold text-gray-900">{selectedPatient.patientName}</p>
+                  <p>요청 번호: #{selectedPatient.registrationId}</p>
                   <p>증상: {selectedPatient.symptomSummary}</p>
                   <p>중증도: {formatSeverityLabel(selectedPatient.severityLevel)}</p>
                   <p className="mt-3 text-red-600">이 작업은 되돌릴 수 없으며, 관리자 화면에서도 즉시 반영됩니다.</p>

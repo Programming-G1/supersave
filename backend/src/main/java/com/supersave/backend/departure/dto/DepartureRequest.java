@@ -13,6 +13,7 @@ public record DepartureRequest(
         @NotNull @DecimalMin("-90.0") @DecimalMax("90.0") Double userLatitude,
         @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") Double userLongitude,
         @Min(1) Integer etaMinutes,
+        @NotBlank @Size(max = 100) String patientName,
         @NotNull RequesterType requesterType,
         @NotBlank String severityLevel,
         @Size(max = 500) String symptomSummary

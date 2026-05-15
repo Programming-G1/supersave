@@ -47,6 +47,7 @@ export interface DepartureRequest {
   userLatitude: number;
   userLongitude: number;
   etaMinutes?: number;
+  patientName: string;
   requesterType: RequesterType;
   severityLevel: SeverityLevel;
   symptomSummary: string;
@@ -56,6 +57,7 @@ export interface DepartureResponse {
   registrationId: number;
   hospitalId: number;
   hospitalName: string;
+  patientName: string;
   requesterType: RequesterType;
   etaMinutes: number;
   queuePosition: number;
@@ -68,6 +70,7 @@ export interface DepartureQueueItem {
   registrationId: number;
   hospitalId: number;
   hospitalName: string;
+  patientName: string;
   requesterType: RequesterType;
   etaMinutes: number;
   severityLevel: SeverityLevel;
