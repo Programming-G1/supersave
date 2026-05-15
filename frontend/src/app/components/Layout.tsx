@@ -64,9 +64,9 @@ export default function Layout() {
               {(mode === 'paramedic' || mode === 'patient') && (
                 <>
                   <Link
-                    to="/dashboard"
+                    to={`/dashboard/${mode}`}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                      location.pathname === '/dashboard'
+                      location.pathname.startsWith('/dashboard')
                         ? 'bg-red-50 text-red-600'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                     }`}

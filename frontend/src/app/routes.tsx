@@ -15,7 +15,7 @@ export const router = createBrowserRouter([
     path: '/',
     Component: Layout,
     children: [
-      { path: 'dashboard', Component: Dashboard },
+      { path: 'dashboard/:userMode', Component: Dashboard },
       { path: 'hospital/:id', Component: HospitalDetail },
       { path: 'transfer', Component: TransferRequest },
       { path: 'hospital-manager', Component: HospitalManager },

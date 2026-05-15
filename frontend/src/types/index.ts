@@ -1,5 +1,6 @@
 export type SeverityLevel = 'KTAS1' | 'KTAS2' | 'KTAS3' | 'KTAS4' | 'KTAS5';
 export type RequesterType = 'PARAMEDIC' | 'PATIENT' | 'GUARDIAN';
+export type DepartureStatus = 'PENDING' | 'ACCEPTED' | 'CANCELLED';
 
 export interface HospitalSummary {
   id: number;
@@ -61,6 +62,18 @@ export interface DepartureResponse {
   projectedWaitMinutes: number;
   advisory: string;
   createdAt: string;
+}
+
+export interface DepartureQueueItem {
+  registrationId: number;
+  hospitalId: number;
+  hospitalName: string;
+  requesterType: RequesterType;
+  etaMinutes: number;
+  severityLevel: SeverityLevel;
+  symptomSummary: string;
+  createdAt: string;
+  status: DepartureStatus;
 }
 
 export interface AiGuideRequest {

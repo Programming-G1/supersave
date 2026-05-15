@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { mockHospitals, mockPatient, congestionData, generateAIAnalysis } from '../data/mockData';
 import { Hospital, HospitalRecommendation } from '../types';
 import Map from '../components/Map';
@@ -22,13 +22,32 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation, useParams } from 'react-router';
 import { useMode } from '../contexts/ModeContext';
 import { toast } from 'sonner';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { mode } = useMode();
+  const location = useLocation();
+  const { userMode } = useParams<{ userMode: string }>();
+  const { mode, setMode, isHydrated } = useMode();
+
+  // URL의 모드와 Context의 모드 동기화
+  useEffect(() => {
+    console.log('Dashboard useEffect:', { isHydrated, userMode, mode });
+    if (!isHydrated) return;
+
+    if (userMode && (userMode === 'paramedic' || userMode === 'patient')) {
+      if (userMode !== mode) {
+        console.log('Setting mode from URL:', userMode);
+        setMode(userMode as any);
+      }
+    } else if (!mode) {
+      console.log('No mode found, redirecting to /');
+      navigate('/');
+    }
+  }, [isHydrated, userMode, mode, setMode, navigate]);
+
   const [selectedHospitalId, setSelectedHospitalId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDepartment, setFilterDepartment] = useState<string | null>(null);
@@ -144,6 +163,8 @@ export default function Dashboard() {
   const handleSelectHospital = (hospitalId: string) => {
     navigate('/transfer', { state: { selectedHospitalId: hospitalId } });
   };
+
+  if (!isHydrated) return null;
 
   return (
     <div className="space-y-6">

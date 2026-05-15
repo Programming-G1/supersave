@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { registerDeparture } from '../../api';
 import { mockHospitals, mockPatient } from '../data/mockData';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -27,6 +28,7 @@ export default function TransferRequest() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transferStarted, setTransferStarted] = useState(false);
   const [eta, setEta] = useState<number>(0);
+  const [initialEta, setInitialEta] = useState<number | null>(null);
 
   // 환자 정보 폼 상태
   const [patientData, setPatientData] = useState({
@@ -43,9 +45,16 @@ export default function TransferRequest() {
 
   const selectedHospital = mockHospitals.find((h) => h.id === selectedHospitalId);
 
+  const resolveBackendHospitalId = (hospitalId: string | null) => {
+    if (!hospitalId) return null;
+    const match = hospitalId.match(/\d+/);
+    return match ? Number(match[0]) : null;
+  };
+
   useEffect(() => {
     if (transferStarted && selectedHospital) {
-      setEta(selectedHospital.estimatedTime);
+      const startingEta = initialEta ?? selectedHospital.estimatedTime;
+      setEta(startingEta);
       const interval = setInterval(() => {
         setEta((prev) => {
           if (prev <= 0) {
@@ -59,7 +68,7 @@ export default function TransferRequest() {
 
       return () => clearInterval(interval);
     }
-  }, [transferStarted, selectedHospital]);
+  }, [transferStarted, selectedHospital, initialEta]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,16 +78,35 @@ export default function TransferRequest() {
       return;
     }
 
+    const backendHospitalId = resolveBackendHospitalId(selectedHospitalId);
+    if (!backendHospitalId || backendHospitalId > 4) {
+      toast.error('현재 데모에서는 실데이터 연동 병원만 이송 요청을 확인할 수 있습니다.');
+      return;
+    }
+
     setIsSubmitting(true);
 
-    // 이송 요청 시뮬레이션
-    setTimeout(() => {
+    try {
+      const response = await registerDeparture({
+        hospitalId: backendHospitalId,
+        userLatitude: 37.5665,
+        userLongitude: 126.9780,
+        etaMinutes: selectedHospital?.estimatedTime,
+        requesterType: 'PARAMEDIC',
+        severityLevel: patientData.severity,
+        symptomSummary: patientData.symptoms,
+      });
+
+      setInitialEta(response.etaMinutes);
       setIsSubmitting(false);
       setTransferStarted(true);
       toast.success('이송이 시작되었습니다!', {
-        description: `${selectedHospital?.name}에 도착 예정 알림이 전송되었습니다.`,
+        description: `${selectedHospital?.name}에 도착 예정 요청이 등록되었습니다.`,
       });
-    }, 1500);
+    } catch {
+      setIsSubmitting(false);
+      toast.error('이송 요청 등록에 실패했습니다.');
+    }
   };
 
   const getSeverityColor = (severity: string) => {
@@ -114,14 +142,14 @@ export default function TransferRequest() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-gray-600">진행 상황</span>
               <span className="text-sm font-semibold text-gray-900">
-                {selectedHospital.estimatedTime - eta} / {selectedHospital.estimatedTime}분
+                {(initialEta ?? selectedHospital.estimatedTime) - eta} / {initialEta ?? selectedHospital.estimatedTime}분
               </span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-4">
               <div
                 className="bg-gradient-to-r from-blue-500 to-green-500 h-4 rounded-full transition-all duration-1000"
                 style={{
-                  width: `${((selectedHospital.estimatedTime - eta) / selectedHospital.estimatedTime) * 100}%`,
+                  width: `${(((initialEta ?? selectedHospital.estimatedTime) - eta) / (initialEta ?? selectedHospital.estimatedTime)) * 100}%`,
                 }}
               />
             </div>

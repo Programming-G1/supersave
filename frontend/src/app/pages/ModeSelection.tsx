@@ -13,7 +13,8 @@ export default function ModeSelection() {
     if (mode === 'hospital') {
       navigate('/hospital-manager');
     } else {
-      navigate('/dashboard');
+      // 이제 /dashboard/paramedic 혹은 /dashboard/patient 로 이동합니다.
+      navigate(`/dashboard/${mode}`);
     }
   };
 
