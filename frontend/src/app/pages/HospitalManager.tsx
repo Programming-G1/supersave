@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { mockHospitals } from '../data/mockData';
+import { useEffect, useState } from 'react';
+import { fetchHospitalDepartures, fetchHospitals, updateDepartureStatus } from '../../api';
+import type { DepartureQueueItem, HospitalSummary, RequesterType, DepartureStatus } from '../../types';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -26,145 +27,190 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-interface ArrivingPatient {
-  id: string;
-  name: string;
-  age: number;
-  gender: 'male' | 'female';
-  requesterType: 'paramedic' | 'patient' | 'guardian';
-  severity: string;
-  symptoms: string;
-  eta: number; // 도착 예정 시간 (분)
-  paramedic: string;
-  registeredAt: string;
-  status: 'pending' | 'accepted' | 'cancelled';
+const requesterTypeLabels: Record<RequesterType, string> = {
+  PARAMEDIC: '구급대원',
+  PATIENT: '환자 본인',
+  GUARDIAN: '보호자',
+};
+
+const requesterChannelLabels: Record<RequesterType, string> = {
+  PARAMEDIC: '구급대 등록',
+  PATIENT: '환자 본인 등록',
+  GUARDIAN: '보호자 등록',
+};
+
+const statusLabels: Record<DepartureStatus, string> = {
+  PENDING: '대기중',
+  ACCEPTED: '접수완료',
+  CANCELLED: '취소됨',
+};
+
+const statusBadgeClassNames: Record<DepartureStatus, string> = {
+  PENDING: 'bg-yellow-50 text-yellow-700 border-yellow-300',
+  ACCEPTED: 'bg-green-50 text-green-700 border-green-300',
+  CANCELLED: 'bg-red-50 text-red-700 border-red-300',
+};
+
+function formatSeverityLabel(severityLevel: string) {
+  const match = severityLevel.match(/^KTAS(\d)$/);
+  if (!match) {
+    return severityLevel;
+  }
+  return `KTAS ${match[1]}`;
 }
 
-const requesterTypeLabels = {
-  paramedic: '구급대원',
-  patient: '환자 본인',
-  guardian: '보호자',
-} as const;
+function formatRegisteredAt(dateTime: string) {
+  return new Date(dateTime).toLocaleString('ko-KR', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function getSeverityColor(severityLevel: string) {
+  if (severityLevel.includes('1')) return 'bg-red-600';
+  if (severityLevel.includes('2')) return 'bg-orange-500';
+  if (severityLevel.includes('3')) return 'bg-yellow-500';
+  return 'bg-green-500';
+}
 
 export default function HospitalManager() {
-  const [selectedHospital, setSelectedHospital] = useState(mockHospitals[0]);
+  const [hospitals, setHospitals] = useState<HospitalSummary[]>([]);
+  const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
+  const [arrivingPatients, setArrivingPatients] = useState<DepartureQueueItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [selectedPatient, setSelectedPatient] = useState<ArrivingPatient | null>(null);
+  const [selectedPatient, setSelectedPatient] = useState<DepartureQueueItem | null>(null);
+  const [loadingHospitals, setLoadingHospitals] = useState(true);
+  const [loadingPatients, setLoadingPatients] = useState(false);
 
-  // 목 데이터: 도착 예정 환자 목록
-  const [arrivingPatients, setArrivingPatients] = useState<ArrivingPatient[]>([
-    {
-      id: 'ap-001',
-      name: '김철수',
-      age: 45,
-      gender: 'male',
-      requesterType: 'paramedic',
-      severity: 'KTAS 2',
-      symptoms: '급성 흉통, 호흡곤란',
-      eta: 8,
-      paramedic: '서울 119 구급대 3팀',
-      registeredAt: '2026-04-06 14:23',
-      status: 'pending',
-    },
-    {
-      id: 'ap-002',
-      name: '이영희',
-      age: 62,
-      gender: 'female',
-      requesterType: 'guardian',
-      severity: 'KTAS 3',
-      symptoms: '낙상 후 우측 고관절 통증',
-      eta: 15,
-      paramedic: '보호자 직접 등록',
-      registeredAt: '2026-04-06 14:30',
-      status: 'pending',
-    },
-    {
-      id: 'ap-003',
-      name: '박민수',
-      age: 28,
-      gender: 'male',
-      requesterType: 'paramedic',
-      severity: 'KTAS 1',
-      symptoms: '교통사고, 다발성 외상',
-      eta: 5,
-      paramedic: '서울 119 구급대 1팀',
-      registeredAt: '2026-04-06 14:35',
-      status: 'accepted',
-    },
-    {
-      id: 'ap-004',
-      name: '최지은',
-      age: 35,
-      gender: 'female',
-      requesterType: 'patient',
-      severity: 'KTAS 2',
-      symptoms: '뇌졸중 의심 증상',
-      eta: 12,
-      paramedic: '환자 본인 직접 등록',
-      registeredAt: '2026-04-06 14:18',
-      status: 'pending',
-    },
-  ]);
+  const selectedHospital = hospitals.find((hospital) => hospital.id === selectedHospitalId) ?? null;
 
-  const filteredPatients = arrivingPatients.filter(patient =>
-    patient.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    patient.symptoms.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => {
+    let cancelled = false;
 
-  const pendingCount = arrivingPatients.filter(p => p.status === 'pending').length;
-  const acceptedCount = arrivingPatients.filter(p => p.status === 'accepted').length;
+    async function loadHospitals() {
+      try {
+        const hospitalList = await fetchHospitals();
+        if (cancelled) {
+          return;
+        }
+        setHospitals(hospitalList);
+        setSelectedHospitalId((current) => current ?? hospitalList[0]?.id ?? null);
+      } catch {
+        if (!cancelled) {
+          toast.error('병원 목록을 불러오지 못했습니다.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingHospitals(false);
+        }
+      }
+    }
 
-  const handleAcceptPatient = (patientId: string) => {
-    setArrivingPatients(prev =>
-      prev.map(p => p.id === patientId ? { ...p, status: 'accepted' as const } : p)
+    loadHospitals();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedHospitalId) {
+      setArrivingPatients([]);
+      return;
+    }
+
+    const hospitalId = selectedHospitalId;
+    let cancelled = false;
+
+    async function loadDepartures() {
+      setLoadingPatients(true);
+      try {
+        const departures = await fetchHospitalDepartures(hospitalId);
+        if (!cancelled) {
+          setArrivingPatients(departures);
+        }
+      } catch {
+        if (!cancelled) {
+          toast.error('도착 예정 환자 목록을 불러오지 못했습니다.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingPatients(false);
+        }
+      }
+    }
+
+    loadDepartures();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedHospitalId]);
+
+  const filteredPatients = arrivingPatients.filter((patient) => {
+    const normalizedQuery = searchQuery.toLowerCase();
+    return (
+      patient.symptomSummary.toLowerCase().includes(normalizedQuery) ||
+      requesterTypeLabels[patient.requesterType].toLowerCase().includes(normalizedQuery) ||
+      `${patient.registrationId}`.includes(normalizedQuery)
     );
-    toast.success('환자 접수가 승인되었습니다');
-  };
+  });
 
-  const handleCancelPatient = () => {
-    if (!selectedPatient) return;
+  const pendingCount = arrivingPatients.filter((patient) => patient.status === 'PENDING').length;
+  const acceptedCount = arrivingPatients.filter((patient) => patient.status === 'ACCEPTED').length;
 
-    setArrivingPatients(prev =>
-      prev.map(p => p.id === selectedPatient.id ? { ...p, status: 'cancelled' as const } : p)
-    );
-    toast.success('예약이 취소되었습니다');
-    setCancelDialogOpen(false);
-    setSelectedPatient(null);
-  };
+  async function handleUpdateStatus(patient: DepartureQueueItem, status: DepartureStatus) {
+    try {
+      const updated = await updateDepartureStatus(patient.registrationId, status);
+      setArrivingPatients((prev) =>
+        prev.map((item) => (item.registrationId === updated.registrationId ? updated : item)),
+      );
+      toast.success(status === 'ACCEPTED' ? '환자 접수가 승인되었습니다.' : '예약이 취소되었습니다.');
+    } catch {
+      toast.error('상태 변경에 실패했습니다.');
+    }
+  }
 
-  const openCancelDialog = (patient: ArrivingPatient) => {
+  function openCancelDialog(patient: DepartureQueueItem) {
     setSelectedPatient(patient);
     setCancelDialogOpen(true);
-  };
+  }
 
-  const getSeverityColor = (severity: string) => {
-    if (severity.includes('1')) return 'bg-red-600';
-    if (severity.includes('2')) return 'bg-orange-500';
-    if (severity.includes('3')) return 'bg-yellow-500';
-    return 'bg-green-500';
-  };
+  async function handleCancelPatient() {
+    if (!selectedPatient) {
+      return;
+    }
+
+    await handleUpdateStatus(selectedPatient, 'CANCELLED');
+    setCancelDialogOpen(false);
+    setSelectedPatient(null);
+  }
+
+  if (loadingHospitals) {
+    return <div className="text-sm text-gray-500">병원 관리자 데이터를 불러오는 중입니다...</div>;
+  }
+
+  if (!selectedHospital) {
+    return <div className="text-sm text-gray-500">표시할 병원 정보가 없습니다.</div>;
+  }
 
   return (
     <div className="space-y-6">
-      {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">병원 관리자 대시보드</h1>
-          <p className="text-sm text-gray-500 mt-1">도착 예정 환자 및 예약 관리</p>
+          <p className="mt-1 text-sm text-gray-500">도착 예정 환자 및 예약 관리</p>
         </div>
         <div className="flex items-center gap-3">
-          <Building2 className="w-5 h-5 text-gray-500" />
+          <Building2 className="h-5 w-5 text-gray-500" />
           <select
             value={selectedHospital.id}
-            onChange={(e) => {
-              const hospital = mockHospitals.find(h => h.id === e.target.value);
-              if (hospital) setSelectedHospital(hospital);
-            }}
-            className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-semibold"
+            onChange={(event) => setSelectedHospitalId(Number(event.target.value))}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold"
           >
-            {mockHospitals.map(hospital => (
+            {hospitals.map((hospital) => (
               <option key={hospital.id} value={hospital.id}>
                 {hospital.name}
               </option>
@@ -173,16 +219,15 @@ export default function HospitalManager() {
         </div>
       </div>
 
-      {/* 통계 카드 */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">대기 환자</p>
-              <p className="text-2xl font-bold text-gray-900">{selectedHospital.waitingPatients}</p>
+              <p className="text-2xl font-bold text-gray-900">{selectedHospital.currentPatients}</p>
             </div>
-            <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-lg">
-              <Users className="w-6 h-6 text-blue-600" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100">
+              <Users className="h-6 w-6 text-blue-600" />
             </div>
           </div>
         </Card>
@@ -193,8 +238,8 @@ export default function HospitalManager() {
               <p className="text-sm text-gray-500">도착 예정</p>
               <p className="text-2xl font-bold text-gray-900">{pendingCount}</p>
             </div>
-            <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-lg">
-              <Clock className="w-6 h-6 text-orange-600" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
+              <Clock className="h-6 w-6 text-orange-600" />
             </div>
           </div>
         </Card>
@@ -205,8 +250,8 @@ export default function HospitalManager() {
               <p className="text-sm text-gray-500">접수 완료</p>
               <p className="text-2xl font-bold text-gray-900">{acceptedCount}</p>
             </div>
-            <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg">
-              <CheckCircle className="w-6 h-6 text-green-600" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-100">
+              <CheckCircle className="h-6 w-6 text-green-600" />
             </div>
           </div>
         </Card>
@@ -215,125 +260,108 @@ export default function HospitalManager() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">가용 병상</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {selectedHospital.beds.general + selectedHospital.beds.icu + selectedHospital.beds.surgery}
-              </p>
+              <p className="text-2xl font-bold text-gray-900">{selectedHospital.availableBeds}</p>
             </div>
-            <div className="flex items-center justify-center w-12 h-12 bg-purple-100 rounded-lg">
-              <Bed className="w-6 h-6 text-purple-600" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-100">
+              <Bed className="h-6 w-6 text-purple-600" />
             </div>
           </div>
         </Card>
       </div>
 
-      {/* 검색 바 */}
       <Card className="p-4">
         <div className="flex items-center gap-2">
-          <Search className="w-5 h-5 text-gray-400" />
+          <Search className="h-5 w-5 text-gray-400" />
           <Input
-            placeholder="환자 이름 또는 증상으로 검색..."
+            placeholder="요청 번호, 증상, 요청 주체로 검색..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(event) => setSearchQuery(event.target.value)}
             className="flex-1"
           />
         </div>
       </Card>
 
-      {/* 도착 예정 환자 목록 */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">도착 예정 환자</h2>
+        <h2 className="mb-4 text-lg font-semibold text-gray-900">도착 예정 환자</h2>
         <div className="space-y-3">
-          {filteredPatients.length === 0 ? (
+          {loadingPatients ? (
             <Card className="p-8 text-center">
-              <p className="text-gray-500">검색 결과가 없습니다</p>
+              <p className="text-gray-500">도착 예정 환자 목록을 불러오는 중입니다.</p>
+            </Card>
+          ) : filteredPatients.length === 0 ? (
+            <Card className="p-8 text-center">
+              <p className="text-gray-500">표시할 도착 요청이 없습니다.</p>
             </Card>
           ) : (
             filteredPatients.map((patient) => (
-              <Card key={patient.id} className="p-4">
+              <Card key={patient.registrationId} className="p-4">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="font-semibold text-gray-900">{patient.name}</h3>
-                      <Badge className={`${getSeverityColor(patient.severity)} text-white`}>
-                        {patient.severity}
+                    <div className="mb-2 flex items-center gap-3">
+                      <h3 className="font-semibold text-gray-900">도착 요청 #{patient.registrationId}</h3>
+                      <Badge className={`${getSeverityColor(patient.severityLevel)} text-white`}>
+                        {formatSeverityLabel(patient.severityLevel)}
                       </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {patient.age}세 / {patient.gender === 'male' ? '남' : '여'}
-                      </Badge>
-                      <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-300">
+                      <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
                         {requesterTypeLabels[patient.requesterType]}
                       </Badge>
-                      {patient.status === 'pending' && (
-                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
-                          대기중
-                        </Badge>
-                      )}
-                      {patient.status === 'accepted' && (
-                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
-                          접수완료
-                        </Badge>
-                      )}
-                      {patient.status === 'cancelled' && (
-                        <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
-                          취소됨
-                        </Badge>
-                      )}
+                      <Badge variant="outline" className={statusBadgeClassNames[patient.status]}>
+                        {statusLabels[patient.status]}
+                      </Badge>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600 mb-3">
+                    <div className="mb-3 grid grid-cols-1 gap-2 text-sm text-gray-600 md:grid-cols-2">
                       <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 text-orange-500" />
-                        <span>증상: {patient.symptoms}</span>
+                        <AlertTriangle className="h-4 w-4 text-orange-500" />
+                        <span>증상: {patient.symptomSummary}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-blue-500" />
-                        <span className="font-semibold text-blue-600">
-                          약 {patient.eta}분 후 도착 예정
-                        </span>
+                        <Clock className="h-4 w-4 text-blue-500" />
+                        <span className="font-semibold text-blue-600">약 {patient.etaMinutes}분 후 도착 예정</span>
                       </div>
                     </div>
 
-                    <div className="text-xs text-gray-500 space-y-1">
+                    <div className="space-y-1 text-xs text-gray-500">
                       <p>요청 주체: {requesterTypeLabels[patient.requesterType]}</p>
-                      <p>{patient.requesterType === 'paramedic' ? '구급대' : '등록 채널'}: {patient.paramedic}</p>
-                      <p>등록 시각: {patient.registeredAt}</p>
+                      <p>등록 채널: {requesterChannelLabels[patient.requesterType]}</p>
+                      <p>등록 시각: {formatRegisteredAt(patient.createdAt)}</p>
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 ml-4">
-                    {patient.status === 'pending' && (
+                  <div className="ml-4 flex flex-col gap-2">
+                    {patient.status === 'PENDING' && (
                       <>
                         <Button
-                          onClick={() => handleAcceptPatient(patient.id)}
+                          onClick={() => handleUpdateStatus(patient, 'ACCEPTED')}
                           className="bg-green-600 hover:bg-green-700"
                           size="sm"
                         >
-                          <CheckCircle className="w-4 h-4 mr-1" />
+                          <CheckCircle className="mr-1 h-4 w-4" />
                           접수
                         </Button>
                         <Button
                           onClick={() => openCancelDialog(patient)}
                           variant="outline"
-                          className="text-red-600 border-red-300 hover:bg-red-50"
+                          className="border-red-300 text-red-600 hover:bg-red-50"
                           size="sm"
                         >
-                          <XCircle className="w-4 h-4 mr-1" />
+                          <XCircle className="mr-1 h-4 w-4" />
                           취소
                         </Button>
                       </>
                     )}
-                    {patient.status === 'accepted' && (
+                    {patient.status === 'ACCEPTED' && (
                       <Button
                         onClick={() => openCancelDialog(patient)}
                         variant="outline"
-                        className="text-red-600 border-red-300 hover:bg-red-50"
+                        className="border-red-300 text-red-600 hover:bg-red-50"
                         size="sm"
                       >
-                        <XCircle className="w-4 h-4 mr-1" />
+                        <XCircle className="mr-1 h-4 w-4" />
                         취소
                       </Button>
                     )}
-                    {patient.status === 'cancelled' && (
+                    {patient.status === 'CANCELLED' && (
                       <Badge className="bg-gray-400 text-white">취소됨</Badge>
                     )}
                   </div>
@@ -344,7 +372,6 @@ export default function HospitalManager() {
         </div>
       </div>
 
-      {/* 취소 확인 다이얼로그 */}
       <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -352,12 +379,10 @@ export default function HospitalManager() {
             <AlertDialogDescription>
               {selectedPatient && (
                 <div className="mt-2 space-y-2">
-                  <p className="font-semibold text-gray-900">환자: {selectedPatient.name}</p>
-                  <p>증상: {selectedPatient.symptoms}</p>
-                  <p>중증도: {selectedPatient.severity}</p>
-                  <p className="text-red-600 mt-3">
-                    이 작업은 되돌릴 수 없으며, 구급대에 즉시 통보됩니다.
-                  </p>
+                  <p className="font-semibold text-gray-900">도착 요청 #{selectedPatient.registrationId}</p>
+                  <p>증상: {selectedPatient.symptomSummary}</p>
+                  <p>중증도: {formatSeverityLabel(selectedPatient.severityLevel)}</p>
+                  <p className="mt-3 text-red-600">이 작업은 되돌릴 수 없으며, 관리자 화면에서도 즉시 반영됩니다.</p>
                 </div>
               )}
             </AlertDialogDescription>
@@ -366,10 +391,7 @@ export default function HospitalManager() {
             <AlertDialogCancel onClick={() => setSelectedPatient(null)}>
               아니오
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleCancelPatient}
-              className="bg-red-600 hover:bg-red-700"
-            >
+            <AlertDialogAction onClick={handleCancelPatient} className="bg-red-600 hover:bg-red-700">
               예, 취소합니다
             </AlertDialogAction>
           </AlertDialogFooter>
