@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { X, Send, Sparkles, User, Bot } from 'lucide-react';
+import { requestAiGuide } from '../../api';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
 import { ChatMessage } from '../types';
+import type { SeverityLevel } from '../../types';
 
 interface AIAssistantProps {
   onClose: () => void;
@@ -15,65 +17,164 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
     {
       id: '1',
       role: 'assistant',
-      content: '안녕하세요! SuperSave AI 도우미입니다. 응급실 이송과 관련하여 무엇을 도와드릴까요?',
+      content: '증상을 입력해주세요. 예: "가슴 통증과 호흡곤란이 있어요"처럼 현재 상태를 알려주시면 응급실 이송 판단을 도와드릴게요.',
       timestamp: new Date(),
     },
   ]);
   const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const generateAIResponse = (userMessage: string): string => {
+  const inferSeverityLevel = (userMessage: string): SeverityLevel => {
     const lowerMessage = userMessage.toLowerCase();
 
-    if (lowerMessage.includes('병원') && lowerMessage.includes('추천')) {
-      return '환자의 증상과 위치 정보를 고려하여 최적의 병원을 추천해드립니다. 현재 "삼성서울병원"과 "서울아산병원"이 가용 병상이 많고 대기 시간이 짧습니다. 환자의 증상이 무엇인가요?';
+    if (
+      lowerMessage.includes('의식') ||
+      lowerMessage.includes('심정지') ||
+      lowerMessage.includes('호흡 없음') ||
+      lowerMessage.includes('대량 출혈')
+    ) {
+      return 'KTAS1';
     }
 
-    if (lowerMessage.includes('흉부') || lowerMessage.includes('심장')) {
-      return '흉부 통증은 심근경색 등 중증 질환의 가능성이 있습니다. KTAS 2등급으로 분류되며, 심장내과 전문의가 있는 병원으로 신속한 이송이 필요합니다. 서울대학교병원, 삼성서울병원, 세브란스병원 모두 심장내과 전문의가 상주하고 있습니다.';
+    if (
+      lowerMessage.includes('가슴') ||
+      lowerMessage.includes('흉부') ||
+      lowerMessage.includes('심장') ||
+      lowerMessage.includes('호흡곤란') ||
+      lowerMessage.includes('뇌졸중')
+    ) {
+      return 'KTAS2';
     }
 
-    if (lowerMessage.includes('대기') || lowerMessage.includes('시간')) {
-      return '현재 대기 시간이 가장 짧은 병원은 서울아산병원(25분)과 삼성서울병원(30분)입니다. 단, 이송 시간을 고려하면 거리가 가까운 병원이 더 유리할 수 있습니다.';
+    if (lowerMessage.includes('통증') || lowerMessage.includes('열') || lowerMessage.includes('어지러움')) {
+      return 'KTAS3';
     }
 
-    if (lowerMessage.includes('중증도') || lowerMessage.includes('ktas')) {
-      return 'KTAS(한국형 응급환자 분류도구)는 1등급부터 5등급까지 있습니다:\n\n- KTAS 1: 소생(즉각 처치)\n- KTAS 2: 응급(10분 이내)\n- KTAS 3: 긴급(30분 이내)\n- KTAS 4: 준긴급(60분 이내)\n- KTAS 5: 비긴급(120분 이내)\n\n환자의 증상을 말씀해 주시면 중증도를 판단해드리겠습니다.';
-    }
-
-    if (lowerMessage.includes('응급처치') || lowerMessage.includes('cpr')) {
-      return '심폐소생술(CPR) 방법:\n\n1. 환자의 반응과 호흡 확인\n2. 119 신고 및 자동심장충격기(AED) 요청\n3. 가슴 압박 30회 (분당 100-120회 속도)\n4. 인공호흡 2회\n5. 위 과정 반복\n\n※ 전문 구급대원 도착 시까지 계속 실시하세요.';
-    }
-
-    if (lowerMessage.includes('비교') || lowerMessage.includes('차이')) {
-      return '병원 비교 분석:\n\n서울대학교병원: 거리가 가깝고(2.3km) 전문 의료진 완비, 중간 혼잡도\n\n삼성서울병원: 가용 병상 가장 많음(21개), 낮은 혼잡도, 약간 멀음(5.7km)\n\n서울아산병원: 대기 시간 가장 짧음(25분), 충분한 의료 장비\n\n환자 상태와 긴급도에 따라 적합한 병원이 달라집니다.';
-    }
-
-    return '네, 이해했습니다. 더 자세한 정보를 위해 환자의 증상, 나이, 기저질환 등을 알려주시면 더 정확한 도움을 드릴 수 있습니다. 또한 실시간 현황 페이지에서 병원별 상세 정보를 확인하실 수 있습니다.';
+    return 'KTAS4';
   };
 
-  const handleSend = () => {
+  const hasMedicalContext = (userMessage: string): boolean => {
+    const lowerMessage = userMessage.toLowerCase();
+    const medicalKeywords = [
+      '증상',
+      '아파',
+      '아픔',
+      '통증',
+      '열',
+      '발열',
+      '어지러움',
+      '구토',
+      '호흡',
+      '숨',
+      '가슴',
+      '흉부',
+      '심장',
+      '의식',
+      '출혈',
+      '경련',
+      '쇼크',
+      '뇌졸중',
+      '외상',
+      '골절',
+      '복통',
+      '두통',
+      '응급',
+      '병원',
+      '이송',
+      'ktas',
+      '중증도',
+      '대기',
+    ];
+
+    return medicalKeywords.some((keyword) => lowerMessage.includes(keyword));
+  };
+
+  const getLocalResponse = (userMessage: string): string | null => {
+    const normalizedMessage = userMessage.trim().toLowerCase().replace(/\s+/g, '');
+
+    if (['하이', '안녕', '안녕하세요', 'ㅎㅇ', 'hello', 'hi'].includes(normalizedMessage)) {
+      return '안녕하세요! 증상을 입력해주세요. 환자의 증상, 나이, 기저질환, 현재 위치를 알려주시면 응급실 선택을 도와드릴게요.';
+    }
+
+    if (
+      normalizedMessage.includes('이름') ||
+      normalizedMessage.includes('누구') ||
+      ((normalizedMessage.includes('너') ||
+        normalizedMessage.includes('니') ||
+        normalizedMessage.includes('당신')) &&
+        (normalizedMessage.includes('뭐') ||
+          normalizedMessage.includes('무엇') ||
+          normalizedMessage.includes('정체')))
+    ) {
+      return '저는 SuperSave AI 도우미입니다. 응급실 이송 판단을 돕기 위해 증상과 상황을 정리해드려요. 먼저 환자 증상을 입력해주세요.';
+    }
+
+    if (normalizedMessage.includes('고마워') || normalizedMessage.includes('감사')) {
+      return '도움이 됐다니 다행입니다. 추가 증상이나 병원 선택 기준이 있으면 이어서 알려주세요.';
+    }
+
+    if (!hasMedicalContext(userMessage)) {
+      return '응급 판단을 위해 증상을 입력해주세요. 예: "38도 열이 나고 숨이 차요", "가슴 통증이 있어요"처럼 현재 상태를 알려주시면 됩니다.';
+    }
+
+    return null;
+  };
+
+  const handleSend = async () => {
     if (!inputValue.trim()) return;
 
+    const prompt = inputValue.trim();
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
-      content: inputValue,
+      content: prompt,
       timestamp: new Date(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setInputValue('');
+    setIsLoading(true);
 
-    // AI 응답 시뮬레이션
-    setTimeout(() => {
+    try {
+      const localResponse = getLocalResponse(prompt);
+      if (localResponse) {
+        const aiMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: localResponse,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+        return;
+      }
+
+      const response = await requestAiGuide({
+        symptomText: prompt,
+        severityLevel: inferSeverityLevel(prompt),
+        userQuestion: prompt,
+      });
+
       const aiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: generateAIResponse(inputValue),
+        content: response.answer,
         timestamp: new Date(),
       };
+
       setMessages((prev) => [...prev, aiMessage]);
-    }, 1000);
+    } catch {
+      const errorMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'AI 응답을 불러오지 못했습니다. 백엔드 서버와 Gemini 환경변수 설정을 확인해주세요.',
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const quickQuestions = [
@@ -84,10 +185,10 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
   ];
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-end p-6">
-      <Card className="w-full max-w-md h-[600px] flex flex-col shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:items-end sm:justify-end sm:p-6">
+      <Card className="flex h-[calc(100dvh-1.5rem)] max-h-[600px] w-full max-w-md flex-col overflow-hidden shadow-2xl sm:h-[min(600px,calc(100dvh-3rem))]">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b">
+        <div className="flex shrink-0 items-center justify-between border-b p-4">
           <div className="flex items-center gap-2">
             <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
               <Sparkles className="w-5 h-5 text-white" />
@@ -103,7 +204,7 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="min-h-0 flex-1 p-4">
           <div className="space-y-4">
             {messages.map((message) => (
               <div
@@ -150,7 +251,7 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
 
         {/* Quick Questions */}
         {messages.length <= 1 && (
-          <div className="p-4 border-t bg-gray-50">
+          <div className="shrink-0 border-t bg-gray-50 p-4">
             <p className="text-xs text-gray-500 mb-2">자주 묻는 질문</p>
             <div className="flex flex-wrap gap-2">
               {quickQuestions.map((question, idx) => (
@@ -169,16 +270,23 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
         )}
 
         {/* Input */}
-        <div className="p-4 border-t">
+        <div className="shrink-0 border-t p-4">
           <div className="flex gap-2">
             <Input
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
               placeholder="질문을 입력하세요..."
               className="flex-1"
+              disabled={isLoading}
             />
-            <Button onClick={handleSend} size="icon" className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={handleSend} size="icon" className="bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
               <Send className="w-4 h-4" />
             </Button>
           </div>

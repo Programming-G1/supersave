@@ -91,6 +91,8 @@ public class AiGuideService {
                 사용자 질문: %s
 
                 위 정보를 바탕으로 한국어로 4문장 이내로 답변하세요.
+                입력이 인사, 자기소개 요청, 잡담처럼 응급 증상이 아닌 경우에는 KTAS나 질환을 판단하지 말고 SuperSave AI 도우미라고 소개한 뒤 증상, 나이, 기저질환, 현재 위치 등 필요한 정보를 질문하세요.
+                중증도는 참고값일 뿐이라고 표현하고, 입력만으로 KTAS 단계를 확정하지 마세요.
                 의료 진단처럼 단정하지 말고, 응급 의사결정 보조용 안내만 제공하세요.
                 상태 악화 시 119 또는 응급실에 즉시 연락해야 한다는 취지의 안내를 포함하세요.
                 """
@@ -100,10 +102,15 @@ public class AiGuideService {
                 new GeminiContent(null, List.of(new GeminiPart(userPrompt))),
                 new GeminiContent(null, List.of(new GeminiPart("""
                         당신은 응급실 의사결정 보조 시스템의 AI 가이드입니다.
+                        인사나 일반 질문에는 응급 환자처럼 분류하지 말고 자연스럽게 응답하세요.
                         의료 진단이나 확정적 처방은 하지 말고, 한국어로 짧고 분명하게 답변하세요.
                         과도한 추측은 피하고 입력 정보 범위 안에서만 설명하세요.
                         """))),
-                new GeminiGenerationConfig(geminiProperties.getTemperature(), geminiProperties.getMaxOutputTokens())
+                new GeminiGenerationConfig(
+                        geminiProperties.getTemperature(),
+                        geminiProperties.getMaxOutputTokens(),
+                        new GeminiThinkingConfig(0)
+                )
         );
     }
 
@@ -150,7 +157,13 @@ public class AiGuideService {
 
     private record GeminiGenerationConfig(
             double temperature,
-            int maxOutputTokens
+            int maxOutputTokens,
+            GeminiThinkingConfig thinkingConfig
+    ) {
+    }
+
+    private record GeminiThinkingConfig(
+            int thinkingBudget
     ) {
     }
 

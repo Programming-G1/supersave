@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { mockHospitals, mockPatient, congestionData, generateAIAnalysis } from '../data/mockData';
 import { Hospital, HospitalRecommendation } from '../types';
+import { fetchRecommendations } from '../../api';
+import type { RecommendationResult as ApiRecommendationResult } from '../../types';
 import Map from '../components/Map';
 import HospitalCard from '../components/HospitalCard';
 import SymptomInput, { PatientSymptomData } from '../components/SymptomInput';
@@ -25,6 +27,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useNavigate, useLocation, useParams } from 'react-router';
 import { useMode } from '../contexts/ModeContext';
 import { toast } from 'sonner';
+
+type DashboardTab = 'map' | 'recommendations' | 'analytics';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -54,13 +58,17 @@ export default function Dashboard() {
   const [sortBy, setSortBy] = useState<'distance' | 'waitTime' | 'beds'>('distance');
   const [showSymptomInput, setShowSymptomInput] = useState(false);
   const [currentPatient, setCurrentPatient] = useState(mockPatient);
+  const [activeTab, setActiveTab] = useState<DashboardTab>('map');
+  const [apiRecommendations, setApiRecommendations] = useState<ApiRecommendationResult[] | null>(null);
+  const [isRecommendationLoading, setIsRecommendationLoading] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
 
   // 사용자 위치 (예시)
   const userLocation = { lat: 37.5665, lng: 126.978 };
 
   // 증상 제출 핸들러
-  const handleSymptomSubmit = (data: PatientSymptomData) => {
-    setCurrentPatient({
+  const handleSymptomSubmit = async (data: PatientSymptomData) => {
+    const nextPatient = {
       id: 'p1',
       name: data.name,
       age: data.age,
@@ -73,11 +81,43 @@ export default function Dashboard() {
         temperature: data.temperature || 36.5,
         oxygenSaturation: data.oxygenSaturation || 98,
       },
-    });
+    };
+
+    setCurrentPatient(nextPatient);
+    setIsRecommendationLoading(true);
+    setRecommendationError(null);
+
+    try {
+      const results = await fetchRecommendations({
+        latitude: userLocation.lat,
+        longitude: userLocation.lng,
+        severityLevel: data.severity,
+        symptomSummary: data.symptoms,
+      });
+
+      setApiRecommendations(results);
+      setActiveTab('recommendations');
+      const topRecommendation = results[0];
+      if (topRecommendation) {
+        setSelectedHospitalId(`h${topRecommendation.hospitalId}`);
+      }
+      toast.success('AI 추천 결과가 업데이트되었습니다', {
+        description: results[0]
+          ? `${results[0].hospitalName}을(를) 우선 추천합니다`
+          : '추천 가능한 병원을 찾지 못했습니다',
+      });
+    } catch {
+      setApiRecommendations(null);
+      setRecommendationError('추천 API 호출에 실패해 로컬 mock 추천을 표시합니다.');
+      setActiveTab('recommendations');
+      toast.error('추천 API 호출에 실패했습니다', {
+        description: '백엔드 서버 상태를 확인해주세요. 임시로 로컬 추천 결과를 표시합니다.',
+      });
+    } finally {
+      setIsRecommendationLoading(false);
+    }
+
     setShowSymptomInput(false);
-    toast.success('증상이 입력되었습니다', {
-      description: 'AI가 최적의 병원을 추천합니다',
-    });
   };
 
   // 병원 추천 점수 계산
@@ -120,7 +160,50 @@ export default function Dashboard() {
     }).sort((a, b) => b.score - a.score);
   };
 
-  const recommendations = calculateRecommendations();
+  const mapApiRecommendation = (recommendation: ApiRecommendationResult): HospitalRecommendation => {
+    const baseHospital =
+      mockHospitals.find((item) => item.id === `h${recommendation.hospitalId}`) ??
+      mockHospitals[0];
+
+    const score = Math.min(100, Math.round(recommendation.score));
+    const waitScore = Math.max(0, 100 - recommendation.estimatedWaitMinutes);
+    const distanceScore = Math.max(0, 100 - recommendation.distanceKm * 10);
+    const availabilityScore = Math.min(100, recommendation.availableBeds * 6);
+    const congestionLevel =
+      recommendation.estimatedWaitMinutes < 30
+        ? 'low'
+        : recommendation.estimatedWaitMinutes < 60
+        ? 'medium'
+        : 'high';
+
+    return {
+      hospital: {
+        ...baseHospital,
+        id: `h${recommendation.hospitalId}`,
+        name: recommendation.hospitalName,
+        distance: recommendation.distanceKm,
+        estimatedTime: recommendation.etaMinutes,
+        currentWaitTime: recommendation.estimatedWaitMinutes,
+        beds: {
+          ...baseHospital.beds,
+          general: recommendation.availableBeds,
+        },
+        congestionLevel,
+      },
+      score,
+      reasons: {
+        distance: distanceScore,
+        availability: availabilityScore,
+        specialization: score,
+        waitTime: waitScore,
+      },
+      aiAnalysis: `[실제 추천 API 결과]\n\n${recommendation.hospitalName} 추천 근거:\n${recommendation.reason}\n\n점수: ${recommendation.score}/100\n거리: ${recommendation.distanceKm}km\n예상 이동: ${recommendation.etaMinutes}분\n예상 대기: ${recommendation.estimatedWaitMinutes}분\n가용 병상: ${recommendation.availableBeds}개`,
+    };
+  };
+
+  const recommendations = apiRecommendations
+    ? apiRecommendations.map(mapApiRecommendation)
+    : calculateRecommendations();
 
   // 필터링 및 정렬
   const filteredHospitals = mockHospitals
@@ -197,6 +280,7 @@ export default function Dashboard() {
           ) : (
             <SymptomInput
               onSubmit={handleSymptomSubmit}
+              isSubmitting={isRecommendationLoading}
               initialData={{
                 name: currentPatient.name,
                 age: currentPatient.age,
@@ -287,7 +371,7 @@ export default function Dashboard() {
       </Card>
 
       {/* 메인 컨텐츠 탭 */}
-      <Tabs defaultValue="map" className="w-full">
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as DashboardTab)} className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="map">지도 뷰</TabsTrigger>
           <TabsTrigger value="recommendations">AI 추천</TabsTrigger>
@@ -379,6 +463,11 @@ export default function Dashboard() {
                 </p>
                 <p className="text-sm text-gray-600">증상: {currentPatient.symptoms}</p>
                 <Badge className="mt-2 bg-red-600">중증도: {currentPatient.severity}</Badge>
+                {apiRecommendations && (
+                  <Badge variant="outline" className="mt-2 ml-2 border-blue-200 text-blue-700">
+                    백엔드 추천 API 연동
+                  </Badge>
+                )}
                 {(mode === 'paramedic' || mode === 'patient') && (
                   <Button
                     size="sm"
@@ -392,6 +481,12 @@ export default function Dashboard() {
               </div>
             </div>
           </Card>
+
+          {recommendationError && (
+            <Card className="border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+              {recommendationError}
+            </Card>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {recommendations.slice(0, 6).map((rec, index) => (
@@ -438,6 +533,27 @@ export default function Dashboard() {
                     <p className="font-semibold text-gray-900">{Math.round(rec.reasons.waitTime)}</p>
                   </div>
                 </div>
+
+                {apiRecommendations && (
+                  <div className="grid grid-cols-4 gap-2 mb-3 rounded-lg bg-blue-50 p-3 text-center text-xs">
+                    <div>
+                      <p className="text-gray-500">거리</p>
+                      <p className="font-semibold text-gray-900">{rec.hospital.distance}km</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">이동</p>
+                      <p className="font-semibold text-gray-900">{rec.hospital.estimatedTime}분</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">대기</p>
+                      <p className="font-semibold text-gray-900">{rec.hospital.currentWaitTime}분</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">가용</p>
+                      <p className="font-semibold text-gray-900">{rec.hospital.beds.general}개</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* AI 분석 보기 버튼 */}
                 <details className="mb-3">
