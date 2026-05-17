@@ -15,10 +15,12 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { useMode } from '../contexts/ModeContext';
+import type { Patient } from '../types';
 
 interface SymptomInputProps {
-  onSubmit: (data: PatientSymptomData) => void;
+  onSubmit: (data: PatientSymptomData) => void | Promise<void>;
   initialData?: PatientSymptomData;
+  isSubmitting?: boolean;
 }
 
 export interface PatientSymptomData {
@@ -26,7 +28,7 @@ export interface PatientSymptomData {
   age: number;
   gender: 'male' | 'female';
   symptoms: string;
-  severity: string;
+  severity: Patient['severity'];
   bloodPressure?: string;
   heartRate?: number;
   temperature?: number;
@@ -38,7 +40,7 @@ const commonSymptoms = [
   '발열', '구토', '의식저하', '경련', '외상'
 ];
 
-const ktasLevels = [
+const ktasLevels: Array<{ level: Patient['severity']; name: string; color: string; desc: string }> = [
   { level: 'KTAS1', name: '소생', color: 'bg-red-600', desc: '즉각적인 치료 필요' },
   { level: 'KTAS2', name: '응급', color: 'bg-orange-500', desc: '10분 이내 치료' },
   { level: 'KTAS3', name: '긴급', color: 'bg-yellow-500', desc: '30분 이내 치료' },
@@ -46,7 +48,7 @@ const ktasLevels = [
   { level: 'KTAS5', name: '비긴급', color: 'bg-blue-500', desc: '2시간 이내 치료' },
 ];
 
-export default function SymptomInput({ onSubmit, initialData }: SymptomInputProps) {
+export default function SymptomInput({ onSubmit, initialData, isSubmitting = false }: SymptomInputProps) {
   const { mode } = useMode();
   const [showVitals, setShowVitals] = useState(false);
   const [aiSuggesting, setAiSuggesting] = useState(false);
@@ -77,7 +79,7 @@ export default function SymptomInput({ onSubmit, initialData }: SymptomInputProp
     // AI 기반 중증도 판단 시뮬레이션
     setTimeout(() => {
       const symptoms = formData.symptoms.toLowerCase();
-      let suggestedLevel = 'KTAS3';
+      let suggestedLevel: Patient['severity'] = 'KTAS3';
 
       if (symptoms.includes('의식') || symptoms.includes('경련') || symptoms.includes('쇼크')) {
         suggestedLevel = 'KTAS1';
@@ -105,9 +107,9 @@ export default function SymptomInput({ onSubmit, initialData }: SymptomInputProp
     }, 1000);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    await onSubmit(formData);
   };
 
   return (
@@ -319,9 +321,10 @@ export default function SymptomInput({ onSubmit, initialData }: SymptomInputProp
           type="submit"
           className="w-full bg-blue-600 hover:bg-blue-700"
           size="lg"
+          disabled={isSubmitting}
         >
           <Sparkles className="w-5 h-5 mr-2" />
-          AI 병원 추천 받기
+          {isSubmitting ? '추천 계산 중...' : 'AI 병원 추천 받기'}
         </Button>
       </form>
     </Card>

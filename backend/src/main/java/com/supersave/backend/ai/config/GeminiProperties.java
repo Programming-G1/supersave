@@ -12,7 +12,7 @@ public class GeminiProperties {
     private String model = "gemini-2.0-flash";
     private String baseUrl = "https://generativelanguage.googleapis.com";
     private double temperature = 0.3;
-    private int maxOutputTokens = 512;
+    private int maxOutputTokens = 1024;
 
     public boolean isEnabled() {
         return enabled;
