@@ -24,6 +24,7 @@ import {
 import { toast } from 'sonner';
 
 export default function TransferRequest() {
+  const hospitalManagerSelectionKey = 'hospitalManager:selectedHospitalId';
   const location = useLocation();
   const navigate = useNavigate();
   const { mode } = useMode();
@@ -97,11 +98,13 @@ export default function TransferRequest() {
         userLatitude: 37.5665,
         userLongitude: 126.9780,
         etaMinutes: selectedHospital?.estimatedTime,
+        patientName: patientData.name,
         requesterType: 'PARAMEDIC',
         severityLevel: patientData.severity,
         symptomSummary: patientData.symptoms,
       });
 
+      window.localStorage.setItem(hospitalManagerSelectionKey, String(response.hospitalId));
       setInitialEta(response.etaMinutes);
       setIsSubmitting(false);
       setTransferStarted(true);

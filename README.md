@@ -82,6 +82,22 @@ mvn spring-boot:run
 - 실제 MySQL 연동 시 [`backend/src/main/resources/application-mysql.example.yml`](/Users/kangdaeun/Desktop/강대운/단국대/3-1학기/문제해결프로그래밍/supersave/backend/src/main/resources/application-mysql.example.yml)를 참고해 설정
 - 이 상태에서는 API만 열리고 `/` 화면은 정적 파일을 동기화한 뒤에만 제공
 
+### 2-1. Gemini API 연동
+
+Gemini 연동은 기본적으로 꺼져 있고, 아래 환경변수를 설정하면 [`/api/ai/guide`](/Users/kangdaeun/Desktop/강대운/단국대/3-1학기/문제해결프로그ᅢ밍/supersave/backend/src/main/java/com/supersave/backend/ai/controller/AiGuideController.java)에서 실응답을 사용합니다.
+
+```bash
+export SUPERSAVE_GEMINI_ENABLED=true
+export GEMINI_API_KEY=발급받은_키
+export GEMINI_MODEL=gemini-2.0-flash
+cd backend
+mvn spring-boot:run
+```
+
+- 기본값은 `SUPERSAVE_GEMINI_ENABLED=false`
+- 키가 없거나 호출이 실패하면 기존 템플릿 응답으로 자동 fallback
+- 현재 구현은 Gemini 응답을 `answer` 필드에 반영하고, 안전 문구/요약/행동 가이드는 서버 템플릿을 유지
+
 ### 3. 프론트엔드 개발 서버
 
 ```bash
@@ -101,4 +117,3 @@ npm run dev
 - 병원 데이터는 [`frontend/src/data/mockData.ts`](/Users/kangdaeun/Desktop/강대운/단국대/3-1학기/문제해결프로그래밍/supersave/frontend/src/data/mockData.ts)와 [`backend/src/main/java/com/supersave/backend/hospital/repository/MockHospitalRepository.java`](/Users/kangdaeun/Desktop/강대운/단국대/3-1학기/문제해결프로그래밍/supersave/backend/src/main/java/com/supersave/backend/hospital/repository/MockHospitalRepository.java)에 들어있음
 - 추천 점수는 거리, 병상, 중증도 수용 가능 여부, 예상 대기시간 기반의 단순 공식 사용
 - 출발 등록은 실제 예약 확정이 아니라 도착 예정 환자 등록 시뮬레이션
-

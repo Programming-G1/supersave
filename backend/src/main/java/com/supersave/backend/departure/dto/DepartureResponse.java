@@ -8,6 +8,7 @@ public record DepartureResponse(
         Long registrationId,
         Long hospitalId,
         String hospitalName,
+        String patientName,
         RequesterType requesterType,
         int etaMinutes,
         int queuePosition,

@@ -12,8 +12,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @Repository
 public class InMemoryDepartureRepository implements DepartureRepository {
 
-    private final AtomicLong sequence = new AtomicLong(1);
-    private final CopyOnWriteArrayList<DepartureRegistration> registrations = new CopyOnWriteArrayList<>();
+    // Keep demo departure state stable even if Spring recreates the repository bean during dev restarts.
+    private static final AtomicLong sequence = new AtomicLong(1);
+    private static final CopyOnWriteArrayList<DepartureRegistration> registrations = new CopyOnWriteArrayList<>();
 
     @Override
     public DepartureRegistration save(DepartureRegistration registration) {
@@ -23,6 +24,7 @@ public class InMemoryDepartureRepository implements DepartureRepository {
                 registration.userLatitude(),
                 registration.userLongitude(),
                 registration.etaMinutes(),
+                registration.patientName(),
                 registration.requesterType(),
                 registration.severityLevel(),
                 registration.symptomSummary(),
@@ -52,6 +54,7 @@ public class InMemoryDepartureRepository implements DepartureRepository {
                     current.userLatitude(),
                     current.userLongitude(),
                     current.etaMinutes(),
+                    current.patientName(),
                     current.requesterType(),
                     current.severityLevel(),
                     current.symptomSummary(),

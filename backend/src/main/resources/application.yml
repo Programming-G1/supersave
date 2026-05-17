@@ -10,3 +10,11 @@ server:
 supersave:
   cors:
     allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+  ai:
+    gemini:
+      enabled: ${SUPERSAVE_GEMINI_ENABLED:false}
+      api-key: ${GEMINI_API_KEY:}
+      model: ${GEMINI_MODEL:gemini-2.0-flash}
+      base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+      temperature: ${GEMINI_TEMPERATURE:0.3}
+      max-output-tokens: ${GEMINI_MAX_OUTPUT_TOKENS:512}
