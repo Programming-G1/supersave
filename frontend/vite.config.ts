@@ -20,4 +20,8 @@ export default defineConfig({
     },
   },
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  build: {
+    outDir: '../backend/src/main/resources/static',
+    emptyOutDir: true,
+  },
 })
