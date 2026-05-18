@@ -63,8 +63,93 @@ export default function Dashboard() {
   const [isRecommendationLoading, setIsRecommendationLoading] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
 
-  // 사용자 위치 (예시)
-  const userLocation = { lat: 37.5665, lng: 126.978 };
+  // 실제 사용자 위치 상태 (기본값: 서울 중심)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 37.5665, lng: 126.9780 });
+
+  useEffect(() => {
+    // 브라우저의 Geolocation API를 사용하여 현재 위치 가져오기
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        (error) => {
+          console.error("위치 정보를 가져오는데 실패했습니다:", error);
+          toast.warning("위치 권한이 거부되었거나 가져올 수 없습니다.", {
+            description: "기본 위치(서울)를 기준으로 서비스를 제공합니다.",
+          });
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }
+  }, []);
+
+  // Haversine 거리 계산 함수
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // 지구 반경 (km)
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c * 10) / 10; // 소수점 첫째자리까지 반올림
+  };
+
+  // 실시간 사용자 위치 및 교통상황 기반 병원 데이터 계산
+  const hospitals = React.useMemo(() => {
+    return mockHospitals.map((hospital) => {
+      if (!hospital.coordinates || !userLocation) return hospital;
+
+      // 1. 직선거리 계산
+      const straightDistance = calculateDistance(
+        userLocation.lat,
+        userLocation.lng,
+        hospital.coordinates.lat,
+        hospital.coordinates.lng
+      );
+
+      // 2. 실제 도로 주행 거리 추정 (직선 거리의 약 1.3배)
+      const drivingDistance = Math.round(straightDistance * 1.3 * 10) / 10;
+
+      // 3. 교통 상황 및 혼잡도 기반 이동 시간 추정
+      // 현재 시간(시간대)에 따른 가중치 부여 (예: 출퇴근 시간 8~9시, 18~19시 정체)
+      const currentHour = new Date().getHours();
+      let trafficFactor = 1.0; // 기본 교통 상황 배율
+
+      if ((currentHour >= 8 && currentHour <= 9) || (currentHour >= 18 && currentHour <= 19)) {
+        trafficFactor = 1.6; // 출퇴근 시간 극심한 정체
+      } else if (currentHour >= 7 && currentHour <= 20) {
+        trafficFactor = 1.25; // 낮 시간 일반 정체
+      } else {
+        trafficFactor = 0.85; // 심야/새벽 원활
+      }
+
+      // 병원 주변 혼잡도에 따른 가중치 추가
+      let congestionFactor = 1.0;
+      if (hospital.congestionLevel === 'high') {
+        congestionFactor = 1.3;
+      } else if (hospital.congestionLevel === 'medium') {
+        congestionFactor = 1.1;
+      } else {
+        congestionFactor = 0.9;
+      }
+
+      // 평균 시속 30km (1km당 2분) 기준 이동 시간 계산
+      const baseTimePerKm = 2.0;
+      const estimatedTime = Math.round(drivingDistance * baseTimePerKm * trafficFactor * congestionFactor);
+
+      return {
+        ...hospital,
+        distance: drivingDistance,
+        estimatedTime: Math.max(estimatedTime, 2), // 최소 2분 이상
+      };
+    });
+  }, [userLocation]);
 
   // 증상 제출 핸들러
   const handleSymptomSubmit = async (data: PatientSymptomData) => {
@@ -122,7 +207,7 @@ export default function Dashboard() {
 
   // 병원 추천 점수 계산
   const calculateRecommendations = (): HospitalRecommendation[] => {
-    return mockHospitals.map((hospital) => {
+    return hospitals.map((hospital) => {
       const distanceScore = Math.max(0, 100 - hospital.distance * 10);
       const availabilityScore = (hospital.beds.general + hospital.beds.icu * 2 + hospital.beds.surgery * 1.5) * 3;
 
@@ -162,8 +247,8 @@ export default function Dashboard() {
 
   const mapApiRecommendation = (recommendation: ApiRecommendationResult): HospitalRecommendation => {
     const baseHospital =
-      mockHospitals.find((item) => item.id === `h${recommendation.hospitalId}`) ??
-      mockHospitals[0];
+      hospitals.find((item) => item.id === `h${recommendation.hospitalId}`) ??
+      hospitals[0];
 
     const score = Math.min(100, Math.round(recommendation.score));
     const waitScore = Math.max(0, 100 - recommendation.estimatedWaitMinutes);
@@ -173,8 +258,8 @@ export default function Dashboard() {
       recommendation.estimatedWaitMinutes < 30
         ? 'low'
         : recommendation.estimatedWaitMinutes < 60
-        ? 'medium'
-        : 'high';
+          ? 'medium'
+          : 'high';
 
     return {
       hospital: {
@@ -206,7 +291,7 @@ export default function Dashboard() {
     : calculateRecommendations();
 
   // 필터링 및 정렬
-  const filteredHospitals = mockHospitals
+  const filteredHospitals = hospitals
     .filter((hospital) => {
       if (searchQuery && !hospital.name.toLowerCase().includes(searchQuery.toLowerCase())) {
         return false;
@@ -231,16 +316,16 @@ export default function Dashboard() {
       }
     });
 
-  const allDepartments = Array.from(new Set(mockHospitals.flatMap((h) => h.departments)));
+  const allDepartments = Array.from(new Set(hospitals.flatMap((h) => h.departments)));
 
   // 전체 통계
-  const totalBeds = mockHospitals.reduce(
+  const totalBeds = hospitals.reduce(
     (sum, h) => sum + h.beds.general + h.beds.icu + h.beds.surgery,
     0
   );
-  const totalWaiting = mockHospitals.reduce((sum, h) => sum + h.waitingPatients, 0);
+  const totalWaiting = hospitals.reduce((sum, h) => sum + h.waitingPatients, 0);
   const avgWaitTime = Math.round(
-    mockHospitals.reduce((sum, h) => sum + h.currentWaitTime, 0) / mockHospitals.length
+    hospitals.reduce((sum, h) => sum + h.currentWaitTime, 0) / hospitals.length
   );
 
   const handleSelectHospital = (hospitalId: string) => {
@@ -332,7 +417,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">운영 중인 병원</p>
-              <p className="text-2xl font-bold text-gray-900">{mockHospitals.length}</p>
+              <p className="text-2xl font-bold text-gray-900">{hospitals.length}</p>
             </div>
             <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg">
               <Heart className="w-6 h-6 text-green-600" />
@@ -346,7 +431,7 @@ export default function Dashboard() {
             <div>
               <p className="text-sm text-gray-500">최단 대기시간</p>
               <p className="text-2xl font-bold text-gray-900">
-                {Math.min(...mockHospitals.map((h) => h.currentWaitTime))}분
+                {Math.min(...hospitals.map((h) => h.currentWaitTime))}분
               </p>
             </div>
             <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-lg">
@@ -437,9 +522,8 @@ export default function Dashboard() {
                   <div
                     key={hospital.id}
                     onClick={() => setSelectedHospitalId(hospital.id)}
-                    className={`cursor-pointer transition-all ${
-                      selectedHospitalId === hospital.id ? 'ring-2 ring-blue-500 rounded-lg' : ''
-                    }`}
+                    className={`cursor-pointer transition-all ${selectedHospitalId === hospital.id ? 'ring-2 ring-blue-500 rounded-lg' : ''
+                      }`}
                   >
                     <HospitalCard hospital={hospital} showActions={false} />
                   </div>
@@ -602,7 +686,7 @@ export default function Dashboard() {
           </Card>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {mockHospitals.map((hospital) => {
+            {hospitals.map((hospital) => {
               const estimatedWait = hospital.currentWaitTime + (hospital.arrivingPatients * 5);
               return (
                 <Card key={hospital.id} className="p-4">
@@ -618,13 +702,12 @@ export default function Dashboard() {
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div
-                          className={`h-2 rounded-full ${
-                            hospital.currentWaitTime < 30
-                              ? 'bg-green-500'
-                              : hospital.currentWaitTime < 60
+                          className={`h-2 rounded-full ${hospital.currentWaitTime < 30
+                            ? 'bg-green-500'
+                            : hospital.currentWaitTime < 60
                               ? 'bg-yellow-500'
                               : 'bg-red-500'
-                          }`}
+                            }`}
                           style={{ width: `${Math.min(hospital.currentWaitTime, 100)}%` }}
                         />
                       </div>
