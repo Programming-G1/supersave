@@ -8,6 +8,7 @@ import type { HospitalSummary } from '../../types';
 
 import { mockHospitals, mockPatient } from '../data/mockData';
 import type { Hospital } from '../types';
+import { inferSeverityFromSymptoms } from '../utils/severity';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -82,21 +83,26 @@ export default function TransferRequest() {
   const [eta, setEta] = useState<number>(0);
   const [initialEta, setInitialEta] = useState<number | null>(null);
   const [hospitals, setHospitals] = useState<Hospital[]>(mockHospitals);
+  const navigationPatientData = location.state?.patientData;
+  const requestLocation = location.state?.userLocation ?? { lat: 37.5665, lng: 126.9780 };
 
   // 환자 정보 폼 상태
   const [patientData, setPatientData] = useState({
-    name: mockPatient.name,
-    age: mockPatient.age,
-    gender: mockPatient.gender,
-    symptoms: mockPatient.symptoms,
-    severity: mockPatient.severity,
-    bloodPressure: mockPatient.vitalSigns.bloodPressure,
-    heartRate: mockPatient.vitalSigns.heartRate,
-    temperature: mockPatient.vitalSigns.temperature,
-    oxygenSaturation: mockPatient.vitalSigns.oxygenSaturation,
+    name: navigationPatientData?.name ?? mockPatient.name,
+    age: navigationPatientData?.age ?? mockPatient.age,
+    gender: navigationPatientData?.gender ?? mockPatient.gender,
+    symptoms: navigationPatientData?.symptoms ?? mockPatient.symptoms,
+    severity: navigationPatientData?.severity ?? mockPatient.severity,
+    bloodPressure: navigationPatientData?.vitalSigns?.bloodPressure ?? mockPatient.vitalSigns.bloodPressure,
+    heartRate: navigationPatientData?.vitalSigns?.heartRate ?? mockPatient.vitalSigns.heartRate,
+    temperature: navigationPatientData?.vitalSigns?.temperature ?? mockPatient.vitalSigns.temperature,
+    oxygenSaturation: navigationPatientData?.vitalSigns?.oxygenSaturation ?? mockPatient.vitalSigns.oxygenSaturation,
   });
 
   const selectedHospital = hospitals.find((h) => h.id === selectedHospitalId);
+  const displaySeverity = mode === 'patient'
+    ? inferSeverityFromSymptoms(patientData.symptoms)
+    : patientData.severity;
 
   const resolveBackendHospitalId = (hospitalId: string | null) => {
     if (!hospitalId) return null;
@@ -164,16 +170,20 @@ export default function TransferRequest() {
     }
 
     setIsSubmitting(true);
+    const severityLevel = mode === 'patient'
+      ? inferSeverityFromSymptoms(patientData.symptoms)
+      : patientData.severity;
+    setPatientData((prev) => ({ ...prev, severity: severityLevel }));
 
     try {
       const response = await registerDeparture({
         hospitalId: backendHospitalId,
-        userLatitude: 37.5665,
-        userLongitude: 126.9780,
+        userLatitude: requestLocation.lat,
+        userLongitude: requestLocation.lng,
         etaMinutes: selectedHospital?.estimatedTime,
         patientName: patientData.name,
-        requesterType: 'PARAMEDIC',
-        severityLevel: patientData.severity,
+        requesterType: mode === 'patient' ? 'PATIENT' : 'PARAMEDIC',
+        severityLevel,
         symptomSummary: patientData.symptoms,
       });
 
@@ -283,7 +293,7 @@ export default function TransferRequest() {
             </div>
             <div>
               <p className="text-sm text-gray-600">중증도</p>
-              <Badge className={getSeverityColor(patientData.severity)}>{patientData.severity}</Badge>
+              <Badge className={getSeverityColor(displaySeverity)}>{displaySeverity}</Badge>
             </div>
           </div>
         </Card>
@@ -369,22 +379,36 @@ export default function TransferRequest() {
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor="severity">중증도 (KTAS) *</Label>
-                  <select
-                    id="severity"
-                    value={patientData.severity}
-                    onChange={(e) => setPatientData({ ...patientData, severity: e.target.value as any })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    required
-                  >
-                    <option value="KTAS1">KTAS 1 (소생)</option>
-                    <option value="KTAS2">KTAS 2 (응급)</option>
-                    <option value="KTAS3">KTAS 3 (긴급)</option>
-                    <option value="KTAS4">KTAS 4 (준긴급)</option>
-                    <option value="KTAS5">KTAS 5 (비긴급)</option>
-                  </select>
-                </div>
+                {mode === 'patient' ? (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-blue-900">AI 판단 중증도</p>
+                        <p className="mt-1 text-xs text-blue-700">
+                          환자모드는 KTAS를 직접 선택하지 않고 증상 기반으로 자동 판단합니다.
+                        </p>
+                      </div>
+                      <Badge className={getSeverityColor(displaySeverity)}>{displaySeverity}</Badge>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <Label htmlFor="severity">중증도 (KTAS) *</Label>
+                    <select
+                      id="severity"
+                      value={patientData.severity}
+                      onChange={(e) => setPatientData({ ...patientData, severity: e.target.value as any })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      required
+                    >
+                      <option value="KTAS1">KTAS 1 (소생)</option>
+                      <option value="KTAS2">KTAS 2 (응급)</option>
+                      <option value="KTAS3">KTAS 3 (긴급)</option>
+                      <option value="KTAS4">KTAS 4 (준긴급)</option>
+                      <option value="KTAS5">KTAS 5 (비긴급)</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </Card>
 

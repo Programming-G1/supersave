@@ -47,6 +47,14 @@ export interface RecommendationResult {
   reason: string;
 }
 
+export interface LocationSearchResult {
+  name: string;
+  address: string;
+  roadAddress: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface DepartureRequest {
   hospitalId: number;
   userLatitude: number;

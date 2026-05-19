@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { mockHospitals, mockPatient, congestionData, generateAIAnalysis } from '../data/mockData';
 import { Hospital, HospitalRecommendation } from '../types';
-import { fetchHospitals, fetchRecommendations } from '../../api';
-import type { HospitalSummary, RecommendationResult as ApiRecommendationResult } from '../../types';
+import { fetchHospitals, fetchRecommendations, searchLocations } from '../../api';
+import type { HospitalSummary, LocationSearchResult, RecommendationResult as ApiRecommendationResult } from '../../types';
 import Map from '../components/Map';
 import HospitalCard from '../components/HospitalCard';
 import SymptomInput, { PatientSymptomData } from '../components/SymptomInput';
+import { inferSeverityFromSymptoms } from '../utils/severity';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -22,6 +23,9 @@ import {
   Brain,
   Stethoscope,
   Sparkles,
+  LocateFixed,
+  MapPin,
+  Search,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNavigate, useLocation, useParams } from 'react-router';
@@ -29,6 +33,14 @@ import { useMode } from '../contexts/ModeContext';
 import { toast } from 'sonner';
 
 type DashboardTab = 'map' | 'recommendations' | 'analytics';
+const DEFAULT_LOCATION = {
+  name: '서울시청',
+  coordinates: { lat: 37.5665, lng: 126.9780 },
+};
+
+function clampScore(score: number) {
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
 
 function hasSpecialty(hospital: HospitalSummary, keyword: string) {
   return hospital.availableSpecialists.some((specialist) => specialist.includes(keyword));
@@ -111,6 +123,12 @@ export default function Dashboard() {
   const [sortBy, setSortBy] = useState<'distance' | 'waitTime' | 'beds'>('distance');
   const [showSymptomInput, setShowSymptomInput] = useState(false);
   const [currentPatient, setCurrentPatient] = useState(mockPatient);
+  const [patientForm, setPatientForm] = useState({
+    name: mockPatient.name,
+    age: mockPatient.age,
+    gender: mockPatient.gender,
+    symptoms: mockPatient.symptoms,
+  });
   const [activeTab, setActiveTab] = useState<DashboardTab>('map');
   const [apiRecommendations, setApiRecommendations] = useState<ApiRecommendationResult[] | null>(null);
   const [isRecommendationLoading, setIsRecommendationLoading] = useState(false);
@@ -118,28 +136,97 @@ export default function Dashboard() {
   const [sourceHospitals, setSourceHospitals] = useState<Hospital[]>(mockHospitals);
   const [hospitalLoadError, setHospitalLoadError] = useState<string | null>(null);
 
-  // 실제 사용자 위치 상태 (기본값: 서울 중심)
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 37.5665, lng: 126.9780 });
+  // 실제 사용자 위치 상태 (기본값: 서울시청)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>(DEFAULT_LOCATION.coordinates);
+  const [locationLabel, setLocationLabel] = useState(DEFAULT_LOCATION.name);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationSearchQuery, setLocationSearchQuery] = useState('');
+  const [locationSearchResults, setLocationSearchResults] = useState<LocationSearchResult[]>([]);
+  const [isLocationSearchLoading, setIsLocationSearchLoading] = useState(false);
+  const [locationSearchError, setLocationSearchError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // 브라우저의 Geolocation API를 사용하여 현재 위치 가져오기
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
+  const applyLocation = (label: string, coordinates: { lat: number; lng: number }, showToast = true) => {
+    setUserLocation(coordinates);
+    setLocationLabel(label);
+    setSelectedHospitalId(null);
+    setApiRecommendations(null);
+    if (showToast) {
+      toast.success(`${label} 기준으로 위치를 설정했습니다`, {
+        description: '거리, 이동시간, 추천 결과가 새 위치 기준으로 다시 계산됩니다.',
+      });
+    }
+  };
+
+  const requestCurrentLocation = (showToast = true) => {
+    if (!navigator.geolocation) {
+      toast.warning('현재 위치를 사용할 수 없습니다', {
+        description: '브라우저가 위치 기능을 지원하지 않아 기본 위치를 사용합니다.',
+      });
+      return;
+    }
+
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        applyLocation(
+          '현재 위치',
+          {
             lat: position.coords.latitude,
             lng: position.coords.longitude,
-          });
-        },
-        (error) => {
-          console.error("위치 정보를 가져오는데 실패했습니다:", error);
-          toast.warning("위치 권한이 거부되었거나 가져올 수 없습니다.", {
-            description: "기본 위치(서울)를 기준으로 서비스를 제공합니다.",
-          });
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
+          },
+          showToast
+        );
+        setIsLocating(false);
+      },
+      (error) => {
+        console.error('위치 정보를 가져오는데 실패했습니다:', error);
+        setIsLocating(false);
+        toast.warning('위치 권한이 거부되었거나 가져올 수 없습니다.', {
+          description: `${DEFAULT_LOCATION.name} 기준으로 서비스를 제공합니다.`,
+        });
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const handleLocationSearch = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    const query = locationSearchQuery.trim();
+    if (!query) {
+      toast.warning('검색할 위치를 입력해주세요');
+      return;
     }
+
+    setIsLocationSearchLoading(true);
+    setLocationSearchError(null);
+
+    try {
+      const results = await searchLocations(query);
+      setLocationSearchResults(results);
+      if (results.length === 0) {
+        setLocationSearchError('검색 결과가 없습니다. 장소명이나 주소를 조금 더 자세히 입력해주세요.');
+      }
+    } catch {
+      setLocationSearchResults([]);
+      setLocationSearchError('위치 검색에 실패했습니다. 카카오 REST API 키 설정을 확인해주세요.');
+      toast.error('위치 검색에 실패했습니다', {
+        description: '백엔드의 KAKAO_REST_API_KEY 설정을 확인해주세요.',
+      });
+    } finally {
+      setIsLocationSearchLoading(false);
+    }
+  };
+
+  const selectSearchedLocation = (result: LocationSearchResult) => {
+    applyLocation(result.name, { lat: result.latitude, lng: result.longitude });
+    setLocationSearchQuery(result.name);
+    setLocationSearchResults([]);
+    setLocationSearchError(null);
+  };
+
+  useEffect(() => {
+    requestCurrentLocation(false);
   }, []);
 
   useEffect(() => {
@@ -291,6 +378,35 @@ export default function Dashboard() {
     setShowSymptomInput(false);
   };
 
+  const handlePatientRecommendationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!patientForm.symptoms.trim()) {
+      toast.warning('증상을 입력해주세요', {
+        description: 'AI가 중증도와 병원 추천을 판단하려면 현재 증상 정보가 필요합니다.',
+      });
+      return;
+    }
+
+    const severity = inferSeverityFromSymptoms(patientForm.symptoms);
+
+    await handleSymptomSubmit({
+      name: patientForm.name.trim() || '환자',
+      age: patientForm.age,
+      gender: patientForm.gender,
+      symptoms: patientForm.symptoms.trim(),
+      severity,
+      bloodPressure: currentPatient.vitalSigns.bloodPressure,
+      heartRate: currentPatient.vitalSigns.heartRate,
+      temperature: currentPatient.vitalSigns.temperature,
+      oxygenSaturation: currentPatient.vitalSigns.oxygenSaturation,
+    });
+
+    toast.info(`AI 판단 중증도: ${severity}`, {
+      description: '환자모드에서는 중증도를 직접 선택하지 않고 증상 기반으로 자동 판단합니다.',
+    });
+  };
+
   // 병원 추천 점수 계산
   const calculateRecommendations = (): HospitalRecommendation[] => {
     return hospitals.map((hospital) => {
@@ -320,7 +436,7 @@ export default function Dashboard() {
 
       return {
         hospital,
-        score: Math.round(totalScore),
+        score: clampScore(totalScore),
         reasons: {
           distance: distanceScore,
           availability: availabilityScore,
@@ -337,7 +453,7 @@ export default function Dashboard() {
       hospitals.find((item) => item.id === `h${recommendation.hospitalId}`) ??
       hospitals[0];
 
-    const score = Math.min(100, Math.round(recommendation.score));
+    const score = clampScore(recommendation.score);
     const totalEstimatedMinutes = recommendation.totalEstimatedMinutes ?? recommendation.etaMinutes + recommendation.estimatedWaitMinutes;
     const waitScore = Math.max(0, 100 - totalEstimatedMinutes);
     const distanceScore = Math.max(0, 100 - recommendation.distanceKm * 10);
@@ -427,7 +543,13 @@ export default function Dashboard() {
   const crowdedHospital = hospitals.find((hospital) => hospital.congestionLevel === 'high');
 
   const handleSelectHospital = (hospitalId: string) => {
-    navigate('/transfer', { state: { selectedHospitalId: hospitalId } });
+    navigate('/transfer', {
+      state: {
+        selectedHospitalId: hospitalId,
+        patientData: currentPatient,
+        userLocation,
+      },
+    });
   };
 
   if (!isHydrated) return null;
@@ -435,7 +557,105 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* 증상 입력 섹션 */}
-      {(mode === 'paramedic' || mode === 'patient') && (
+      {mode === 'patient' && (
+        <Card className="p-5 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200">
+          <form onSubmit={handlePatientRecommendationSubmit} className="space-y-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">AI 맞춤 병원 추천</h3>
+                  <p className="text-sm text-gray-600">
+                    환자 정보와 증상만 입력하면 AI가 중증도를 판단하고 병원을 추천합니다.
+                  </p>
+                  <p className="mt-1 text-xs text-blue-700">
+                    환자모드에서는 KTAS를 직접 선택하지 않습니다.
+                  </p>
+                </div>
+              </div>
+              <Badge variant="outline" className="w-fit border-blue-200 bg-white text-blue-700">
+                AI 중증도 자동 판단
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label htmlFor="patient-name" className="mb-1 block text-sm font-medium text-gray-700">
+                  환자명 *
+                </label>
+                <Input
+                  id="patient-name"
+                  value={patientForm.name}
+                  onChange={(e) => setPatientForm({ ...patientForm, name: e.target.value })}
+                  placeholder="예: 김환자"
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="patient-age" className="mb-1 block text-sm font-medium text-gray-700">
+                  나이 *
+                </label>
+                <Input
+                  id="patient-age"
+                  type="number"
+                  min="0"
+                  max="120"
+                  value={patientForm.age}
+                  onChange={(e) => setPatientForm({ ...patientForm, age: parseInt(e.target.value) || 0 })}
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="patient-gender" className="mb-1 block text-sm font-medium text-gray-700">
+                  성별 *
+                </label>
+                <select
+                  id="patient-gender"
+                  value={patientForm.gender}
+                  onChange={(e) => setPatientForm({ ...patientForm, gender: e.target.value as 'male' | 'female' })}
+                  className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  required
+                >
+                  <option value="male">남성</option>
+                  <option value="female">여성</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="patient-symptoms" className="mb-1 block text-sm font-medium text-gray-700">
+                현재 증상 *
+              </label>
+              <textarea
+                id="patient-symptoms"
+                value={patientForm.symptoms}
+                onChange={(e) => setPatientForm({ ...patientForm, symptoms: e.target.value })}
+                className="min-h-[96px] w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                placeholder="예: 흉부 통증과 호흡곤란이 있어요"
+                required
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                입력된 증상으로 KTAS를 자동 판단해 추천 API에 전달합니다.
+              </p>
+            </div>
+
+            <Button
+              type="submit"
+              disabled={isRecommendationLoading || !patientForm.symptoms.trim()}
+              className="w-full bg-blue-600 hover:bg-blue-700"
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              {isRecommendationLoading ? 'AI 추천 계산 중...' : 'AI 병원 추천 받기'}
+            </Button>
+          </form>
+        </Card>
+      )}
+
+      {mode === 'paramedic' && (
         <>
           {!showSymptomInput ? (
             <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200">
@@ -447,7 +667,7 @@ export default function Dashboard() {
                   <div>
                     <h3 className="font-semibold text-gray-900">AI 맞춤 병원 추천</h3>
                     <p className="text-sm text-gray-600">
-                      {mode === 'patient' ? '증상을 입력하면' : '환자 증상을 입력하면'} AI가 최적의 병원을 추천합니다
+                      환자 증상을 입력하면 AI가 최적의 병원을 추천합니다
                     </p>
                   </div>
                 </div>
@@ -479,6 +699,84 @@ export default function Dashboard() {
           )}
         </>
       )}
+
+      {/* 출발 위치 설정 */}
+      <Card className="p-4 border-blue-100 bg-white">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50">
+              <MapPin className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">출발 위치 설정</h3>
+              <p className="text-sm text-gray-600">
+                현재 기준: <span className="font-semibold text-blue-700">{locationLabel}</span>
+                <span className="ml-2 text-xs text-gray-400">
+                  {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
+                </span>
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                위치를 바꾸면 거리, 이동시간, 총 소요시간 기준 추천이 다시 계산됩니다.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <form onSubmit={handleLocationSearch} className="flex flex-1 flex-col gap-2 sm:flex-row">
+              <Input
+                value={locationSearchQuery}
+                onChange={(event) => setLocationSearchQuery(event.target.value)}
+                placeholder="출발 위치 검색 예: 단국대, 서울역"
+                className="flex-1"
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                disabled={isLocationSearchLoading}
+                className="border-blue-200 text-blue-700 hover:bg-blue-50"
+              >
+                <Search className="h-4 w-4" />
+                {isLocationSearchLoading ? '검색 중' : '위치 검색'}
+              </Button>
+            </form>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => requestCurrentLocation(true)}
+              disabled={isLocating}
+              className="border-blue-200 text-blue-700 hover:bg-blue-50"
+            >
+              <LocateFixed className="h-4 w-4" />
+              {isLocating ? '확인 중' : '현재 위치'}
+            </Button>
+          </div>
+
+          {(locationSearchResults.length > 0 || locationSearchError) && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              {locationSearchError ? (
+                <p className="text-sm text-gray-600">{locationSearchError}</p>
+              ) : (
+                <div className="space-y-2">
+                  {locationSearchResults.map((result) => (
+                    <button
+                      key={`${result.name}-${result.latitude}-${result.longitude}`}
+                      type="button"
+                      onClick={() => selectSearchedLocation(result)}
+                      className="w-full rounded-lg bg-white p-3 text-left transition hover:bg-blue-50"
+                    >
+                      <p className="font-medium text-gray-900">{result.name}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {result.roadAddress || result.address || '주소 정보 없음'}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Card>
 
       {/* 상단 통계 카드 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -660,7 +958,7 @@ export default function Dashboard() {
                     백엔드 추천 API 연동
                   </Badge>
                 )}
-                {(mode === 'paramedic' || mode === 'patient') && (
+                {mode === 'paramedic' && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -668,6 +966,16 @@ export default function Dashboard() {
                     className="mt-2 text-blue-600"
                   >
                     증상 수정
+                  </Button>
+                )}
+                {mode === 'patient' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                    className="mt-2 text-blue-600"
+                  >
+                    환자 정보 수정
                   </Button>
                 )}
               </div>

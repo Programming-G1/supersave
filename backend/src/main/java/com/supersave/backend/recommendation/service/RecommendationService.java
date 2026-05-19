@@ -34,10 +34,11 @@ public class RecommendationService {
         int totalEstimatedMinutes = etaMinutes + waitMinutes;
 
         boolean severitySupported = hospital.severityLevels().contains(request.severityLevel());
-        double score = (severitySupported ? 34.0 : 10.0)
+        double rawScore = (severitySupported ? 34.0 : 10.0)
                 + Math.min((hospital.availableBeds() + hospital.intensiveCareBeds() + hospital.surgeryBeds()) * 3.0, 28.0)
                 + Math.max(0.0, 38.0 - (totalEstimatedMinutes / 2.5))
                 + symptomBonus(hospital, request.symptomSummary());
+        double score = clampScore(rawScore);
 
         return new RecommendationResultResponse(
                 hospital.id(),
@@ -70,6 +71,10 @@ public class RecommendationService {
             return 10.0;
         }
         return 0.0;
+    }
+
+    private double clampScore(double score) {
+        return Math.max(0.0, Math.min(100.0, score));
     }
 
     private double haversineKm(double lat1, double lon1, double lat2, double lon2) {

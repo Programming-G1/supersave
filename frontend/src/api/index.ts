@@ -10,6 +10,7 @@ import type {
   DepartureStatus,
   HospitalDetail,
   HospitalSummary,
+  LocationSearchResult,
   RecommendationRequest,
   RecommendationResult,
 } from '@/types';
@@ -89,6 +90,25 @@ export async function fetchAlerts() {
     return mockAlerts;
   }
   return (await apiClient.get<AlertItem[]>('/api/alerts')).data;
+}
+
+export async function searchLocations(query: string) {
+  if (useMockApi) {
+    await wait();
+    return [
+      {
+        name: query,
+        address: '서울 중구 세종대로 110',
+        roadAddress: '서울 중구 세종대로 110',
+        latitude: 37.5665,
+        longitude: 126.9780,
+      },
+    ] satisfies LocationSearchResult[];
+  }
+
+  return (await apiClient.get<LocationSearchResult[]>('/api/locations/search', {
+    params: { query },
+  })).data;
 }
 
 export async function fetchRecommendations(request: RecommendationRequest) {

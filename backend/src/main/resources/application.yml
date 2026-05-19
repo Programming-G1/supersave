@@ -28,3 +28,7 @@ supersave:
     base-url: ${PUBLIC_DATA_BASE_URL:http://apis.data.go.kr/B552657/ErmctInfoInqireService}
     num-of-rows: ${PUBLIC_DATA_NUM_OF_ROWS:1000}
     refresh-interval-milliseconds: ${PUBLIC_DATA_REFRESH_INTERVAL_MILLISECONDS:120000}
+  kakao:
+    local:
+      rest-api-key: ${KAKAO_REST_API_KEY:}
+      base-url: ${KAKAO_LOCAL_BASE_URL:https://dapi.kakao.com}
