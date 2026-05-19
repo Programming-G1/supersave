@@ -21,6 +21,6 @@ class RecommendationServiceTest {
 
         assertThat(results).isNotEmpty();
         assertThat(results.getFirst().score()).isGreaterThanOrEqualTo(results.get(1).score());
-        assertThat(results.getFirst().reason()).contains("예상 ETA");
+        assertThat(results.getFirst().reason()).contains("총 소요");
     }
 }

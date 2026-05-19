@@ -57,8 +57,8 @@ function toAppHospital(hospital: HospitalSummary): Hospital {
     },
     beds: {
       general: availableBeds,
-      icu: 0,
-      surgery: 0,
+      icu: Math.max(0, hospital.intensiveCareBeds ?? 0),
+      surgery: Math.max(0, hospital.surgeryBeds ?? 0),
     },
     specialists: {
       cardiology: hasSpecialty(hospital, '심장') || hasSpecialty(hospital, '흉부'),
@@ -309,7 +309,8 @@ export default function Dashboard() {
         specializationScore = hospital.specialists.trauma ? 95 : 35;
       }
 
-      const waitTimeScore = Math.max(0, 100 - hospital.currentWaitTime);
+      const totalEstimatedMinutes = hospital.estimatedTime + hospital.currentWaitTime;
+      const waitTimeScore = Math.max(0, 100 - totalEstimatedMinutes);
 
       const totalScore =
         distanceScore * 0.3 +
@@ -337,7 +338,8 @@ export default function Dashboard() {
       hospitals[0];
 
     const score = Math.min(100, Math.round(recommendation.score));
-    const waitScore = Math.max(0, 100 - recommendation.estimatedWaitMinutes);
+    const totalEstimatedMinutes = recommendation.totalEstimatedMinutes ?? recommendation.etaMinutes + recommendation.estimatedWaitMinutes;
+    const waitScore = Math.max(0, 100 - totalEstimatedMinutes);
     const distanceScore = Math.max(0, 100 - recommendation.distanceKm * 10);
     const availabilityScore = Math.min(100, recommendation.availableBeds * 6);
     const congestionLevel =
@@ -358,6 +360,8 @@ export default function Dashboard() {
         beds: {
           ...baseHospital.beds,
           general: recommendation.availableBeds,
+          icu: Math.max(0, recommendation.intensiveCareBeds ?? baseHospital.beds.icu),
+          surgery: Math.max(0, recommendation.surgeryBeds ?? baseHospital.beds.surgery),
         },
         congestionLevel,
       },
@@ -368,7 +372,7 @@ export default function Dashboard() {
         specialization: score,
         waitTime: waitScore,
       },
-      aiAnalysis: `[실제 추천 API 결과]\n\n${recommendation.hospitalName} 추천 근거:\n${recommendation.reason}\n\n점수: ${recommendation.score}/100\n거리: ${recommendation.distanceKm}km\n예상 이동: ${recommendation.etaMinutes}분\n예상 대기: ${recommendation.estimatedWaitMinutes}분\n가용 병상: ${recommendation.availableBeds}개`,
+      aiAnalysis: `[실제 추천 API 결과]\n\n${recommendation.hospitalName} 추천 근거:\n${recommendation.reason}\n\n점수: ${recommendation.score}/100\n거리: ${recommendation.distanceKm}km\n예상 이동: ${recommendation.etaMinutes}분\n예상 대기: ${recommendation.estimatedWaitMinutes}분\n총 소요: ${totalEstimatedMinutes}분\n가용 병상: ${recommendation.availableBeds}개`,
     };
   };
 
@@ -392,7 +396,7 @@ export default function Dashboard() {
         case 'distance':
           return a.distance - b.distance;
         case 'waitTime':
-          return a.currentWaitTime - b.currentWaitTime;
+          return (a.estimatedTime + a.currentWaitTime) - (b.estimatedTime + b.currentWaitTime);
         case 'beds':
           const bedsA = a.beds.general + a.beds.icu + a.beds.surgery;
           const bedsB = b.beds.general + b.beds.icu + b.beds.surgery;
@@ -413,12 +417,13 @@ export default function Dashboard() {
   const avgWaitTime = hospitals.length > 0
     ? Math.round(hospitals.reduce((sum, h) => sum + h.currentWaitTime, 0) / hospitals.length)
     : 0;
-  const shortestWaitHospital = hospitals.reduce<Hospital | null>((best, hospital) => {
-    if (!best || hospital.currentWaitTime < best.currentWaitTime) {
+  const fastestHospital = hospitals.reduce<Hospital | null>((best, hospital) => {
+    if (!best || hospital.estimatedTime + hospital.currentWaitTime < best.estimatedTime + best.currentWaitTime) {
       return hospital;
     }
     return best;
   }, null);
+  const fastestTotalTime = fastestHospital ? fastestHospital.estimatedTime + fastestHospital.currentWaitTime : 0;
   const crowdedHospital = hospitals.find((hospital) => hospital.congestionLevel === 'high');
 
   const handleSelectHospital = (hospitalId: string) => {
@@ -522,16 +527,18 @@ export default function Dashboard() {
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">최단 대기시간</p>
+              <p className="text-sm text-gray-500">최단 총 소요시간</p>
               <p className="text-2xl font-bold text-gray-900">
-                {shortestWaitHospital?.currentWaitTime ?? 0}분
+                {fastestTotalTime}분
               </p>
             </div>
             <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-lg">
               <Brain className="w-6 h-6 text-orange-600" />
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">{shortestWaitHospital?.name ?? '정보 없음'}</p>
+          <p className="text-xs text-gray-500 mt-2">
+            {fastestHospital ? `${fastestHospital.name} · 이동 ${fastestHospital.estimatedTime}분 + 대기 ${fastestHospital.currentWaitTime}분` : '정보 없음'}
+          </p>
         </Card>
       </div>
 
@@ -549,7 +556,7 @@ export default function Dashboard() {
             <h4 className="font-semibold text-yellow-900">긴급 알림</h4>
             <p className="text-sm text-yellow-800 mt-1">
               {crowdedHospital
-                ? `${crowdedHospital.name}의 혼잡도가 높습니다. 거리순 또는 대기시간순으로 인근 대체 병원을 확인하세요.`
+                ? `${crowdedHospital.name}의 혼잡도가 높습니다. 거리순 또는 총 소요시간순으로 인근 대체 병원을 확인하세요.`
                 : '전국 응급의료기관 정보를 기준으로 병원 현황을 표시합니다.'}
             </p>
           </div>
@@ -611,7 +618,7 @@ export default function Dashboard() {
                     className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2"
                   >
                     <option value="distance">거리순</option>
-                    <option value="waitTime">대기시간순</option>
+                    <option value="waitTime">총 소요시간순</option>
                     <option value="beds">가용병상순</option>
                   </select>
                 </div>
@@ -714,7 +721,7 @@ export default function Dashboard() {
                     <p className="font-semibold text-gray-900">{Math.round(rec.reasons.specialization)}</p>
                   </div>
                   <div className="text-xs">
-                    <p className="text-gray-500">대기</p>
+                    <p className="text-gray-500">총 소요</p>
                     <p className="font-semibold text-gray-900">{Math.round(rec.reasons.waitTime)}</p>
                   </div>
                 </div>
@@ -734,8 +741,10 @@ export default function Dashboard() {
                       <p className="font-semibold text-gray-900">{rec.hospital.currentWaitTime}분</p>
                     </div>
                     <div>
-                      <p className="text-gray-500">가용</p>
-                      <p className="font-semibold text-gray-900">{rec.hospital.beds.general}개</p>
+                      <p className="text-gray-500">총 소요</p>
+                      <p className="font-semibold text-gray-900">
+                        {rec.hospital.estimatedTime + rec.hospital.currentWaitTime}분
+                      </p>
                     </div>
                   </div>
                 )}

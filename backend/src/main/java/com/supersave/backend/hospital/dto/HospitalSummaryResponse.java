@@ -12,6 +12,8 @@ public record HospitalSummaryResponse(
         double latitude,
         double longitude,
         int availableBeds,
+        int intensiveCareBeds,
+        int surgeryBeds,
         List<String> severityLevels,
         List<String> availableSpecialists,
         int currentPatients,
@@ -23,6 +25,7 @@ public record HospitalSummaryResponse(
         return new HospitalSummaryResponse(
                 hospital.id(), hospital.name(), hospital.address(), hospital.phone(),
                 hospital.latitude(), hospital.longitude(), hospital.availableBeds(),
+                hospital.intensiveCareBeds(), hospital.surgeryBeds(),
                 hospital.severityLevels(), hospital.availableSpecialists(), hospital.currentPatients(),
                 hospital.incomingPatients(), hospital.estimatedWaitTimeMinutes(), hospital.region()
         );

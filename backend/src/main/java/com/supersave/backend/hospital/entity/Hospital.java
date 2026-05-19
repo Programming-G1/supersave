@@ -10,6 +10,8 @@ public record Hospital(
         double latitude,
         double longitude,
         int availableBeds,
+        int intensiveCareBeds,
+        int surgeryBeds,
         List<String> severityLevels,
         List<String> availableSpecialists,
         List<String> departments,
@@ -26,7 +28,8 @@ public record Hospital(
                 ((currentPatients + nextIncoming) / Math.max(processingRatePerHour, 1.0)) * 60.0
         );
         return new Hospital(
-                id, name, address, phone, latitude, longitude, availableBeds, severityLevels,
+                id, name, address, phone, latitude, longitude, availableBeds, intensiveCareBeds,
+                surgeryBeds, severityLevels,
                 availableSpecialists, departments, equipmentStatus, currentPatients, nextIncoming,
                 processingRatePerHour, nextWait, region
         );

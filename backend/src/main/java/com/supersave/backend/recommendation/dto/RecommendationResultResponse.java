@@ -7,7 +7,10 @@ public record RecommendationResultResponse(
         double distanceKm,
         int etaMinutes,
         int estimatedWaitMinutes,
+        int totalEstimatedMinutes,
         int availableBeds,
+        int intensiveCareBeds,
+        int surgeryBeds,
         String reason
 ) {
 }

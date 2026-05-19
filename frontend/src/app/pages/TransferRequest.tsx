@@ -48,8 +48,8 @@ function toAppHospital(hospital: HospitalSummary): Hospital {
     coordinates: { lat: hospital.latitude, lng: hospital.longitude },
     beds: {
       general: Math.max(0, hospital.availableBeds),
-      icu: 0,
-      surgery: 0,
+      icu: Math.max(0, hospital.intensiveCareBeds ?? 0),
+      surgery: Math.max(0, hospital.surgeryBeds ?? 0),
     },
     specialists: {
       cardiology: hasSpecialty(hospital, '심장') || hasSpecialty(hospital, '흉부'),

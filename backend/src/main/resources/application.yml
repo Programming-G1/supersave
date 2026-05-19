@@ -6,7 +6,7 @@ spring:
       - optional:file:.env[.properties]
       - optional:file:backend/.env[.properties]
   profiles:
-    active: mock
+    active: api
 
 server:
   port: 8080
@@ -18,7 +18,7 @@ supersave:
     gemini:
       enabled: ${SUPERSAVE_GEMINI_ENABLED:false}
       api-key: ${GEMINI_API_KEY:}
-      model: ${GEMINI_MODEL:gemini-2.0-flash}
+      model: ${GEMINI_MODEL:gemini-2.5-flash}
       base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
       temperature: ${GEMINI_TEMPERATURE:0.3}
       max-output-tokens: ${GEMINI_MAX_OUTPUT_TOKENS:1024}

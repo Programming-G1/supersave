@@ -10,6 +10,8 @@ export interface HospitalSummary {
   latitude: number;
   longitude: number;
   availableBeds: number;
+  intensiveCareBeds?: number;
+  surgeryBeds?: number;
   severityLevels: string[];
   availableSpecialists: string[];
   currentPatients: number;
@@ -38,7 +40,10 @@ export interface RecommendationResult {
   distanceKm: number;
   etaMinutes: number;
   estimatedWaitMinutes: number;
+  totalEstimatedMinutes: number;
   availableBeds: number;
+  intensiveCareBeds?: number;
+  surgeryBeds?: number;
   reason: string;
 }
 

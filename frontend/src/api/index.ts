@@ -112,8 +112,11 @@ export async function fetchRecommendations(request: RecommendationRequest) {
         distanceKm: Math.round(distanceKm * 10) / 10,
         etaMinutes,
         estimatedWaitMinutes: hospital.estimatedWaitTimeMinutes,
+        totalEstimatedMinutes: etaMinutes + hospital.estimatedWaitTimeMinutes,
         availableBeds: hospital.availableBeds,
-        reason: `${hospital.severityLevels.includes(request.severityLevel) ? '선택 중증도 대응 가능' : '부분 대응 가능'} / ETA ${etaMinutes}분 / 예상 대기 ${hospital.estimatedWaitTimeMinutes}분`,
+        intensiveCareBeds: hospital.intensiveCareBeds ?? 0,
+        surgeryBeds: hospital.surgeryBeds ?? 0,
+        reason: `${hospital.severityLevels.includes(request.severityLevel) ? '선택 중증도 대응 가능' : '부분 대응 가능'} / 이동 ${etaMinutes}분 / 대기 ${hospital.estimatedWaitTimeMinutes}분 / 총 소요 ${etaMinutes + hospital.estimatedWaitTimeMinutes}분`,
       };
     })
     .sort((a, b) => b.score - a.score);

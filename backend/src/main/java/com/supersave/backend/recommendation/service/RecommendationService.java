@@ -31,12 +31,12 @@ public class RecommendationService {
         int waitMinutes = (int) Math.round(
                 ((hospital.currentPatients() + hospital.incomingPatients()) / Math.max(hospital.processingRatePerHour(), 1.0)) * 60.0
         );
+        int totalEstimatedMinutes = etaMinutes + waitMinutes;
 
         boolean severitySupported = hospital.severityLevels().contains(request.severityLevel());
         double score = (severitySupported ? 34.0 : 10.0)
-                + Math.min(hospital.availableBeds() * 4.0, 28.0)
-                + Math.max(0.0, 24.0 - (distanceKm * 2.5))
-                + Math.max(0.0, 14.0 - (waitMinutes / 8.0))
+                + Math.min((hospital.availableBeds() + hospital.intensiveCareBeds() + hospital.surgeryBeds()) * 3.0, 28.0)
+                + Math.max(0.0, 38.0 - (totalEstimatedMinutes / 2.5))
                 + symptomBonus(hospital, request.symptomSummary());
 
         return new RecommendationResultResponse(
@@ -46,9 +46,13 @@ public class RecommendationService {
                 Math.round(distanceKm * 10.0) / 10.0,
                 etaMinutes,
                 waitMinutes,
+                totalEstimatedMinutes,
                 hospital.availableBeds(),
+                hospital.intensiveCareBeds(),
+                hospital.surgeryBeds(),
                 (severitySupported ? "선택한 중증도 대응 가능" : "중증도 대응은 제한적")
-                        + " / 예상 ETA " + etaMinutes + "분 / 예상 대기 " + waitMinutes + "분"
+                        + " / 예상 이동 " + etaMinutes + "분 / 예상 대기 " + waitMinutes + "분"
+                        + " / 총 소요 " + totalEstimatedMinutes + "분"
         );
     }
 

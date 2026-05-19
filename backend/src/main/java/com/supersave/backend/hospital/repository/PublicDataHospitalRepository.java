@@ -276,6 +276,8 @@ public class PublicDataHospitalRepository implements HospitalRepository {
 
     private Hospital toHospital(PublicHospitalItem info, PublicRealtimeBedItem realtime) {
         int availableBeds = realtime == null ? 0 : Math.max(0, realtime.emergencyBeds());
+        int intensiveCareBeds = realtime == null ? 0 : Math.max(0, realtime.intensiveCareBeds());
+        int surgeryBeds = realtime == null ? 0 : Math.max(0, realtime.surgeryBeds());
         int currentPatients = estimateCurrentPatients(availableBeds);
         int estimatedWait = estimateWaitMinutes(availableBeds);
         Set<String> departments = new LinkedHashSet<>();
@@ -299,6 +301,8 @@ public class PublicDataHospitalRepository implements HospitalRepository {
                 info.latitude(),
                 info.longitude(),
                 availableBeds,
+                intensiveCareBeds,
+                surgeryBeds,
                 List.of("KTAS1", "KTAS2", "KTAS3", "KTAS4", "KTAS5"),
                 specialists.stream().toList(),
                 departments.stream().toList(),
@@ -405,9 +409,24 @@ public class PublicDataHospitalRepository implements HospitalRepository {
     private record PublicRealtimeBedItem(
             String hpid,
             int emergencyBeds,
+            int intensiveCareBeds,
+            int surgeryBeds,
             List<String> equipmentStatus
     ) {
         static PublicRealtimeBedItem from(Map<String, String> values) {
+            int surgeryBeds = integer(values, "hvoc");
+            int intensiveCareBeds = positiveSum(
+                    integer(values, "hvicc"),
+                    integer(values, "hvccc"),
+                    integer(values, "hvcc"),
+                    integer(values, "hvncc"),
+                    integer(values, "hv2"),
+                    integer(values, "hv3"),
+                    integer(values, "hv6"),
+                    integer(values, "hv7"),
+                    integer(values, "hv8"),
+                    integer(values, "hv9")
+            );
             List<String> equipment = new ArrayList<>();
             addAvailability(equipment, "CT", text(values, "hvctayn"));
             addAvailability(equipment, "MRI", text(values, "hvmriayn"));
@@ -422,6 +441,8 @@ public class PublicDataHospitalRepository implements HospitalRepository {
             return new PublicRealtimeBedItem(
                     text(values, "hpid"),
                     integer(values, "hvec"),
+                    intensiveCareBeds,
+                    surgeryBeds,
                     equipment.isEmpty() ? List.of("실시간 장비 정보 없음") : List.copyOf(equipment)
             );
         }
@@ -455,6 +476,16 @@ public class PublicDataHospitalRepository implements HospitalRepository {
         } catch (NumberFormatException exception) {
             return 0;
         }
+    }
+
+    private static int positiveSum(int... values) {
+        int sum = 0;
+        for (int value : values) {
+            if (value > 0) {
+                sum += value;
+            }
+        }
+        return sum;
     }
 
     private static double number(Map<String, String> values, String key) {
