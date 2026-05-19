@@ -6,7 +6,7 @@ spring:
       - optional:file:.env[.properties]
       - optional:file:backend/.env[.properties]
   profiles:
-    active: mock
+    active: api
 
 server:
   port: 8080
@@ -23,8 +23,8 @@ supersave:
       temperature: ${GEMINI_TEMPERATURE:0.3}
       max-output-tokens: ${GEMINI_MAX_OUTPUT_TOKENS:1024}
   public-data:
-    enabled: ${PUBLIC_DATA_ENABLED:true}
-    service-key: ${PUBLIC_DATA_SERVICE_KEY:}
-    base-url: ${PUBLIC_DATA_BASE_URL:http://apis.data.go.kr/B552657/ErmctInfoInqireService}
-    num-of-rows: ${PUBLIC_DATA_NUM_OF_ROWS:1000}
-    refresh-interval-milliseconds: ${PUBLIC_DATA_REFRESH_INTERVAL_MILLISECONDS:120000}
+    enabled: true
+    service-key: 7cdf90b6774ea6458bb691ccad45b86b02e680ad1a4d0dc804b3cc90b59b4dc9
+    base-url: http://apis.data.go.kr/B552657/ErmctInfoInqireService
+    num-of-rows: 1000
+    refresh-interval-milliseconds: 120000
