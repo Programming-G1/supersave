@@ -1,6 +1,10 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { mockHospitals, congestionData } from '../data/mockData';
 import { useMode } from '../contexts/ModeContext';
+import { fetchHospital } from '../../api';
+import type { HospitalDetail as ApiHospitalDetail } from '../../types';
+import type { Hospital } from '../types';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -19,11 +23,99 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+function hasSpecialty(hospital: ApiHospitalDetail, keyword: string) {
+  return hospital.availableSpecialists.some((specialist) => specialist.includes(keyword));
+}
+
+function hasEquipment(hospital: ApiHospitalDetail, keyword: string) {
+  return hospital.equipmentStatus.some((equipment) => equipment.includes(keyword));
+}
+
+function toAppHospital(hospital: ApiHospitalDetail): Hospital {
+  const currentWaitTime = Math.max(0, hospital.estimatedWaitTimeMinutes);
+  const congestionLevel =
+    currentWaitTime < 30
+      ? 'low'
+      : currentWaitTime < 60
+        ? 'medium'
+        : 'high';
+
+  return {
+    id: `h${hospital.id}`,
+    name: hospital.name,
+    address: hospital.address,
+    coordinates: { lat: hospital.latitude, lng: hospital.longitude },
+    beds: {
+      general: Math.max(0, hospital.availableBeds),
+      icu: 0,
+      surgery: 0,
+    },
+    specialists: {
+      cardiology: hasSpecialty(hospital, '심장') || hasSpecialty(hospital, '흉부'),
+      neurology: hasSpecialty(hospital, '신경') || hasSpecialty(hospital, '뇌'),
+      orthopedics: hasSpecialty(hospital, '정형') || hasSpecialty(hospital, '외상'),
+      pediatrics: hasSpecialty(hospital, '소아'),
+      trauma: hasSpecialty(hospital, '외상') || hasSpecialty(hospital, '응급'),
+    },
+    departments: hospital.departments.length > 0 ? hospital.departments : hospital.availableSpecialists,
+    currentWaitTime,
+    waitingPatients: Math.max(0, hospital.currentPatients),
+    arrivingPatients: Math.max(0, hospital.incomingPatients),
+    equipment: {
+      ct: hasEquipment(hospital, 'CT'),
+      mri: hasEquipment(hospital, 'MRI'),
+      xray: hasEquipment(hospital, '촬영') || hasEquipment(hospital, 'X-Ray'),
+      ultrasound: hasEquipment(hospital, '초음파'),
+    },
+    distance: 0,
+    estimatedTime: Math.max(8, Math.round(currentWaitTime / 4)),
+    congestionLevel,
+  };
+}
+
 export default function HospitalDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { mode } = useMode();
-  const hospital = mockHospitals.find((h) => h.id === id);
+  const [apiHospital, setApiHospital] = useState<Hospital | null>(null);
+  const [loadingHospital, setLoadingHospital] = useState(true);
+  const hospital = apiHospital ?? mockHospitals.find((h) => h.id === id);
+
+  useEffect(() => {
+    let cancelled = false;
+    const backendHospitalId = id?.match(/\d+/)?.[0];
+
+    if (!backendHospitalId) {
+      setLoadingHospital(false);
+      return;
+    }
+
+    async function loadHospital() {
+      try {
+        const detail = await fetchHospital(Number(backendHospitalId));
+        if (!cancelled) {
+          setApiHospital(toAppHospital(detail));
+        }
+      } catch {
+        if (!cancelled) {
+          setApiHospital(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingHospital(false);
+        }
+      }
+    }
+
+    loadHospital();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  if (loadingHospital && !hospital) {
+    return <div className="text-sm text-gray-500">병원 상세 정보를 불러오는 중입니다...</div>;
+  }
 
   if (!hospital) {
     return (

@@ -2,6 +2,7 @@ package com.supersave.backend.hospital.repository;
 
 import com.supersave.backend.common.exception.NotFoundException;
 import com.supersave.backend.hospital.entity.Hospital;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Repository
+@ConditionalOnProperty(name = "supersave.public-data.enabled", havingValue = "false", matchIfMissing = true)
 public class MockHospitalRepository implements HospitalRepository {
 
     private final Map<Long, Hospital> hospitals = new ConcurrentHashMap<>();

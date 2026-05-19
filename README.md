@@ -128,3 +128,13 @@ npm run dev
   - 선택된 병원과 사용자 간의 가상 이송 경로 시각화 (`Polyline` 그리기)
 - **설정 및 실행**:
   - `frontend/.env` 파일 내 `VITE_KAKAO_MAP_API_KEY` 키에 Kakao Developers에서 발급받은 JavaScript API Key를 설정하여 구동합니다.
+
+## 공공데이터 API 연동
+
+- **연동 범위**: 국립중앙의료원 전국 응급의료기관 정보 조회 서비스에서 전국 응급의료기관 목록과 실시간 가용 병상 정보를 조회합니다.
+- **설정 파일**: `backend/.env` 파일에 아래 값을 추가하면 Spring Boot 실행 시 자동으로 읽습니다.
+- **필수 값**: `PUBLIC_DATA_SERVICE_KEY=공공데이터포털_인증키`
+- **선택 값**: `PUBLIC_DATA_NUM_OF_ROWS=1000`, `PUBLIC_DATA_REFRESH_INTERVAL_MILLISECONDS=120000`
+- **갱신 주기**: Spring Boot 서버가 시작 시 전국 병원 기본 정보를 1회 수집하고, 이후 기본 2분마다 전국 실시간 가용 병상 정보만 다시 받아 서버 메모리 캐시를 갱신합니다.
+- **프론트 호출 방식**: 프론트는 공공데이터 API를 직접 호출하지 않고, `/api/hospitals`, `/api/recommendations` 같은 우리 서버 API만 호출합니다.
+- **동작 방식**: 키가 없거나 API 호출이 실패하면 발표/개발이 막히지 않도록 기존 mock 병원 데이터로 자동 fallback됩니다.

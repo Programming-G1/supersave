@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { mockHospitals, mockPatient, congestionData, generateAIAnalysis } from '../data/mockData';
 import { Hospital, HospitalRecommendation } from '../types';
-import { fetchRecommendations } from '../../api';
-import type { RecommendationResult as ApiRecommendationResult } from '../../types';
+import { fetchHospitals, fetchRecommendations } from '../../api';
+import type { HospitalSummary, RecommendationResult as ApiRecommendationResult } from '../../types';
 import Map from '../components/Map';
 import HospitalCard from '../components/HospitalCard';
 import SymptomInput, { PatientSymptomData } from '../components/SymptomInput';
@@ -29,6 +29,59 @@ import { useMode } from '../contexts/ModeContext';
 import { toast } from 'sonner';
 
 type DashboardTab = 'map' | 'recommendations' | 'analytics';
+
+function hasSpecialty(hospital: HospitalSummary, keyword: string) {
+  return hospital.availableSpecialists.some((specialist) => specialist.includes(keyword));
+}
+
+function toAppHospital(hospital: HospitalSummary): Hospital {
+  const availableBeds = Math.max(0, hospital.availableBeds);
+  const currentWaitTime = Math.max(0, hospital.estimatedWaitTimeMinutes);
+  const departments = hospital.availableSpecialists.length > 0
+    ? hospital.availableSpecialists
+    : ['응급의학과'];
+  const congestionLevel =
+    currentWaitTime < 30
+      ? 'low'
+      : currentWaitTime < 60
+        ? 'medium'
+        : 'high';
+
+  return {
+    id: `h${hospital.id}`,
+    name: hospital.name,
+    address: hospital.address,
+    coordinates: {
+      lat: hospital.latitude,
+      lng: hospital.longitude,
+    },
+    beds: {
+      general: availableBeds,
+      icu: 0,
+      surgery: 0,
+    },
+    specialists: {
+      cardiology: hasSpecialty(hospital, '심장') || hasSpecialty(hospital, '흉부'),
+      neurology: hasSpecialty(hospital, '신경') || hasSpecialty(hospital, '뇌'),
+      orthopedics: hasSpecialty(hospital, '정형') || hasSpecialty(hospital, '외상'),
+      pediatrics: hasSpecialty(hospital, '소아'),
+      trauma: hasSpecialty(hospital, '외상') || hasSpecialty(hospital, '응급'),
+    },
+    departments,
+    currentWaitTime,
+    waitingPatients: Math.max(0, hospital.currentPatients),
+    arrivingPatients: Math.max(0, hospital.incomingPatients),
+    equipment: {
+      ct: false,
+      mri: false,
+      xray: false,
+      ultrasound: false,
+    },
+    distance: 0,
+    estimatedTime: 0,
+    congestionLevel,
+  };
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -62,6 +115,8 @@ export default function Dashboard() {
   const [apiRecommendations, setApiRecommendations] = useState<ApiRecommendationResult[] | null>(null);
   const [isRecommendationLoading, setIsRecommendationLoading] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [sourceHospitals, setSourceHospitals] = useState<Hospital[]>(mockHospitals);
+  const [hospitalLoadError, setHospitalLoadError] = useState<string | null>(null);
 
   // 실제 사용자 위치 상태 (기본값: 서울 중심)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 37.5665, lng: 126.9780 });
@@ -87,6 +142,37 @@ export default function Dashboard() {
     }
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHospitals() {
+      try {
+        const hospitalList = await fetchHospitals();
+        if (cancelled) {
+          return;
+        }
+        const mappedHospitals = hospitalList
+          .filter((hospital) => hospital.latitude && hospital.longitude)
+          .map(toAppHospital);
+        setSourceHospitals(mappedHospitals.length > 0 ? mappedHospitals : mockHospitals);
+        setHospitalLoadError(null);
+      } catch {
+        if (!cancelled) {
+          setSourceHospitals(mockHospitals);
+          setHospitalLoadError('병원 API 호출에 실패해 로컬 mock 데이터를 표시합니다.');
+          toast.error('병원 목록을 불러오지 못했습니다', {
+            description: '임시로 로컬 병원 데이터를 표시합니다.',
+          });
+        }
+      }
+    }
+
+    loadHospitals();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Haversine 거리 계산 함수
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371; // 지구 반경 (km)
@@ -102,7 +188,7 @@ export default function Dashboard() {
 
   // 실시간 사용자 위치 및 교통상황 기반 병원 데이터 계산
   const hospitals = React.useMemo(() => {
-    return mockHospitals.map((hospital) => {
+    return sourceHospitals.map((hospital) => {
       if (!hospital.coordinates || !userLocation) return hospital;
 
       // 1. 직선거리 계산
@@ -149,7 +235,7 @@ export default function Dashboard() {
         estimatedTime: Math.max(estimatedTime, 2), // 최소 2분 이상
       };
     });
-  }, [userLocation]);
+  }, [sourceHospitals, userLocation]);
 
   // 증상 제출 핸들러
   const handleSymptomSubmit = async (data: PatientSymptomData) => {
@@ -324,9 +410,16 @@ export default function Dashboard() {
     0
   );
   const totalWaiting = hospitals.reduce((sum, h) => sum + h.waitingPatients, 0);
-  const avgWaitTime = Math.round(
-    hospitals.reduce((sum, h) => sum + h.currentWaitTime, 0) / hospitals.length
-  );
+  const avgWaitTime = hospitals.length > 0
+    ? Math.round(hospitals.reduce((sum, h) => sum + h.currentWaitTime, 0) / hospitals.length)
+    : 0;
+  const shortestWaitHospital = hospitals.reduce<Hospital | null>((best, hospital) => {
+    if (!best || hospital.currentWaitTime < best.currentWaitTime) {
+      return hospital;
+    }
+    return best;
+  }, null);
+  const crowdedHospital = hospitals.find((hospital) => hospital.congestionLevel === 'high');
 
   const handleSelectHospital = (hospitalId: string) => {
     navigate('/transfer', { state: { selectedHospitalId: hospitalId } });
@@ -431,16 +524,22 @@ export default function Dashboard() {
             <div>
               <p className="text-sm text-gray-500">최단 대기시간</p>
               <p className="text-2xl font-bold text-gray-900">
-                {Math.min(...hospitals.map((h) => h.currentWaitTime))}분
+                {shortestWaitHospital?.currentWaitTime ?? 0}분
               </p>
             </div>
             <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-lg">
               <Brain className="w-6 h-6 text-orange-600" />
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">서울아산병원</p>
+          <p className="text-xs text-gray-500 mt-2">{shortestWaitHospital?.name ?? '정보 없음'}</p>
         </Card>
       </div>
+
+      {hospitalLoadError && (
+        <Card className="border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+          {hospitalLoadError}
+        </Card>
+      )}
 
       {/* 긴급 알림 */}
       <Card className="p-4 bg-yellow-50 border-yellow-200">
@@ -449,7 +548,9 @@ export default function Dashboard() {
           <div>
             <h4 className="font-semibold text-yellow-900">긴급 알림</h4>
             <p className="text-sm text-yellow-800 mt-1">
-              세브란스병원의 혼잡도가 높습니다. 인근 서울대학교병원 또는 고려대학교 안암병원을 추천합니다.
+              {crowdedHospital
+                ? `${crowdedHospital.name}의 혼잡도가 높습니다. 거리순 또는 대기시간순으로 인근 대체 병원을 확인하세요.`
+                : '전국 응급의료기관 정보를 기준으로 병원 현황을 표시합니다.'}
             </p>
           </div>
         </div>

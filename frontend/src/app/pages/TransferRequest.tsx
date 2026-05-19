@@ -3,9 +3,11 @@ import { useLocation, useNavigate } from 'react-router';
 
 import { useMode } from '../contexts/ModeContext';
 
-import { registerDeparture } from '../../api';
+import { fetchHospitals, registerDeparture } from '../../api';
+import type { HospitalSummary } from '../../types';
 
 import { mockHospitals, mockPatient } from '../data/mockData';
+import type { Hospital } from '../types';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -23,6 +25,50 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+function hasSpecialty(hospital: HospitalSummary, keyword: string) {
+  return hospital.availableSpecialists.some((specialist) => specialist.includes(keyword));
+}
+
+function toAppHospital(hospital: HospitalSummary): Hospital {
+  const currentWaitTime = Math.max(0, hospital.estimatedWaitTimeMinutes);
+  const departments = hospital.availableSpecialists.length > 0
+    ? hospital.availableSpecialists
+    : ['응급의학과'];
+  const congestionLevel =
+    currentWaitTime < 30
+      ? 'low'
+      : currentWaitTime < 60
+        ? 'medium'
+        : 'high';
+
+  return {
+    id: `h${hospital.id}`,
+    name: hospital.name,
+    address: hospital.address,
+    coordinates: { lat: hospital.latitude, lng: hospital.longitude },
+    beds: {
+      general: Math.max(0, hospital.availableBeds),
+      icu: 0,
+      surgery: 0,
+    },
+    specialists: {
+      cardiology: hasSpecialty(hospital, '심장') || hasSpecialty(hospital, '흉부'),
+      neurology: hasSpecialty(hospital, '신경') || hasSpecialty(hospital, '뇌'),
+      orthopedics: hasSpecialty(hospital, '정형') || hasSpecialty(hospital, '외상'),
+      pediatrics: hasSpecialty(hospital, '소아'),
+      trauma: hasSpecialty(hospital, '외상') || hasSpecialty(hospital, '응급'),
+    },
+    departments,
+    currentWaitTime,
+    waitingPatients: Math.max(0, hospital.currentPatients),
+    arrivingPatients: Math.max(0, hospital.incomingPatients),
+    equipment: { ct: false, mri: false, xray: false, ultrasound: false },
+    distance: 0,
+    estimatedTime: Math.max(8, Math.round(currentWaitTime / 4)),
+    congestionLevel,
+  };
+}
+
 export default function TransferRequest() {
   const hospitalManagerSelectionKey = 'hospitalManager:selectedHospitalId';
   const location = useLocation();
@@ -35,6 +81,7 @@ export default function TransferRequest() {
   const [transferStarted, setTransferStarted] = useState(false);
   const [eta, setEta] = useState<number>(0);
   const [initialEta, setInitialEta] = useState<number | null>(null);
+  const [hospitals, setHospitals] = useState<Hospital[]>(mockHospitals);
 
   // 환자 정보 폼 상태
   const [patientData, setPatientData] = useState({
@@ -49,13 +96,39 @@ export default function TransferRequest() {
     oxygenSaturation: mockPatient.vitalSigns.oxygenSaturation,
   });
 
-  const selectedHospital = mockHospitals.find((h) => h.id === selectedHospitalId);
+  const selectedHospital = hospitals.find((h) => h.id === selectedHospitalId);
 
   const resolveBackendHospitalId = (hospitalId: string | null) => {
     if (!hospitalId) return null;
     const match = hospitalId.match(/\d+/);
     return match ? Number(match[0]) : null;
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHospitals() {
+      try {
+        const hospitalList = await fetchHospitals();
+        if (cancelled) {
+          return;
+        }
+        const mappedHospitals = hospitalList
+          .filter((hospital) => hospital.latitude && hospital.longitude)
+          .map(toAppHospital);
+        setHospitals(mappedHospitals.length > 0 ? mappedHospitals : mockHospitals);
+      } catch {
+        if (!cancelled) {
+          setHospitals(mockHospitals);
+        }
+      }
+    }
+
+    loadHospitals();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (transferStarted && selectedHospital) {
@@ -85,8 +158,8 @@ export default function TransferRequest() {
     }
 
     const backendHospitalId = resolveBackendHospitalId(selectedHospitalId);
-    if (!backendHospitalId || backendHospitalId > 4) {
-      toast.error('현재 데모에서는 실데이터 연동 병원만 이송 요청을 확인할 수 있습니다.');
+    if (!backendHospitalId) {
+      toast.error('병원 ID를 확인할 수 없습니다.');
       return;
     }
 
@@ -383,7 +456,7 @@ export default function TransferRequest() {
             <Card className="p-6">
               <h3 className="font-semibold text-gray-900 mb-4">이송 병원 선택</h3>
 
-              {!selectedHospitalId ? (
+              {!selectedHospitalId || !selectedHospital ? (
                 <div className="flex flex-col items-center justify-center py-8">
                   <AlertCircle className="w-12 h-12 text-gray-400 mb-3" />
                   <p className="text-gray-600 text-center">
@@ -397,7 +470,7 @@ export default function TransferRequest() {
                     <span className="font-semibold">병원이 선택되었습니다</span>
                   </div>
                   <HospitalCard
-                    hospital={mockHospitals.find((h) => h.id === selectedHospitalId)!}
+                    hospital={selectedHospital}
                     showActions={false}
                   />
                   <Button
@@ -415,7 +488,7 @@ export default function TransferRequest() {
             {!selectedHospitalId && (
               <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
                 <h4 className="font-semibold text-gray-900">가까운 병원 목록</h4>
-                {mockHospitals
+                {[...hospitals]
                   .sort((a, b) => a.distance - b.distance)
                   .map((hospital) => (
                     <div

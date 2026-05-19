@@ -36,7 +36,7 @@ export default function Map({ hospitals, selectedHospitalId, onHospitalClick, us
     <Card className="relative w-full h-[600px] overflow-hidden">
       {/* 지도 제목 */}
       <div className="absolute top-4 left-4 bg-white rounded-lg shadow-md px-4 py-2 z-10">
-        <h3 className="font-semibold text-gray-900">서울시 응급실 현황</h3>
+        <h3 className="font-semibold text-gray-900">전국 응급실 현황</h3>
         <p className="text-xs text-gray-500">실시간 업데이트 (카카오맵 연동)</p>
       </div>
 

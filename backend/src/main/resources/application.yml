@@ -1,6 +1,10 @@
 spring:
   application:
     name: supersave-backend
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:backend/.env[.properties]
   profiles:
     active: mock
 
@@ -18,3 +22,9 @@ supersave:
       base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
       temperature: ${GEMINI_TEMPERATURE:0.3}
       max-output-tokens: ${GEMINI_MAX_OUTPUT_TOKENS:1024}
+  public-data:
+    enabled: ${PUBLIC_DATA_ENABLED:true}
+    service-key: ${PUBLIC_DATA_SERVICE_KEY:}
+    base-url: ${PUBLIC_DATA_BASE_URL:http://apis.data.go.kr/B552657/ErmctInfoInqireService}
+    num-of-rows: ${PUBLIC_DATA_NUM_OF_ROWS:1000}
+    refresh-interval-milliseconds: ${PUBLIC_DATA_REFRESH_INTERVAL_MILLISECONDS:120000}
