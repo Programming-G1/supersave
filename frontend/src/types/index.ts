@@ -1,4 +1,5 @@
 export type SeverityLevel = 'KTAS1' | 'KTAS2' | 'KTAS3' | 'KTAS4' | 'KTAS5';
+export type SeverityInferenceSource = 'KEYWORD' | 'AI' | 'FALLBACK' | 'MANUAL';
 export type RequesterType = 'PARAMEDIC' | 'PATIENT' | 'GUARDIAN';
 export type DepartureStatus = 'PENDING' | 'ACCEPTED' | 'CANCELLED';
 
@@ -104,6 +105,20 @@ export interface AiGuideResponse {
   recommendationReason: string;
   actionGuide: string[];
   answer: string;
+}
+
+export interface AiSeverityRequest {
+  symptomText: string;
+  age?: number;
+  bloodPressure?: string;
+  heartRate?: number;
+  temperature?: number;
+  oxygenSaturation?: number;
+}
+
+export interface AiSeverityResponse {
+  severityLevel: SeverityLevel;
+  source: SeverityInferenceSource;
 }
 
 export interface AlertItem {

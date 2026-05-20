@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router';
 
 import { useMode } from '../contexts/ModeContext';
 
-import { fetchHospitals, registerDeparture } from '../../api';
+import { fetchHospitals, registerDeparture, resolveSeverityLevel } from '../../api';
 import type { HospitalSummary } from '../../types';
 
 import { mockHospitals, mockPatient } from '../data/mockData';
@@ -191,9 +191,17 @@ export default function TransferRequest() {
     }
 
     setIsSubmitting(true);
-    const severityLevel = mode === 'patient'
-      ? inferSeverityFromSymptoms(patientData.symptoms)
-      : patientData.severity;
+    const severityResult = mode === 'patient'
+      ? await resolveSeverityLevel({
+          symptomText: patientData.symptoms,
+          age: patientData.age,
+          bloodPressure: patientData.bloodPressure,
+          heartRate: patientData.heartRate,
+          temperature: patientData.temperature,
+          oxygenSaturation: patientData.oxygenSaturation,
+        })
+      : { severityLevel: patientData.severity, source: 'MANUAL' as const };
+    const severityLevel = severityResult.severityLevel;
     setPatientData((prev) => ({ ...prev, severity: severityLevel }));
 
     try {
@@ -212,6 +220,17 @@ export default function TransferRequest() {
       setInitialEta(response.etaMinutes);
       setIsSubmitting(false);
       setTransferStarted(true);
+      if (mode === 'patient' && severityResult.source !== 'MANUAL') {
+        const severityDescription =
+          severityResult.source === 'AI'
+            ? '키워드가 부족해 AI가 증상 설명을 보완 해석했습니다.'
+            : severityResult.source === 'FALLBACK'
+              ? 'AI 응답이 없어 보수적 fallback 기준으로 중증도를 분류했습니다.'
+              : '증상 키워드가 일치해 자동 판단했습니다.';
+        toast.info(`AI 판단 중증도: ${severityLevel}`, {
+          description: severityDescription,
+        });
+      }
       toast.success('이송이 시작되었습니다!', {
         description: `${selectedHospital?.name}에 도착 예정 요청이 등록되었습니다.`,
       });

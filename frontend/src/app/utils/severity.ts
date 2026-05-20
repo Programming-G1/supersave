@@ -1,6 +1,11 @@
 import type { Patient } from '../types';
 
-export function inferSeverityFromSymptoms(symptoms: string): Patient['severity'] {
+export interface SeverityKeywordInferenceResult {
+  severityLevel: Patient['severity'];
+  matched: boolean;
+}
+
+export function inferSeverityByKeywords(symptoms: string): SeverityKeywordInferenceResult {
   const normalizedSymptoms = symptoms.toLowerCase();
 
   if (
@@ -9,7 +14,7 @@ export function inferSeverityFromSymptoms(symptoms: string): Patient['severity']
     normalizedSymptoms.includes('경련') ||
     normalizedSymptoms.includes('쇼크')
   ) {
-    return 'KTAS1';
+    return { severityLevel: 'KTAS1', matched: true };
   }
 
   if (
@@ -22,7 +27,7 @@ export function inferSeverityFromSymptoms(symptoms: string): Patient['severity']
     normalizedSymptoms.includes('뇌졸중') ||
     normalizedSymptoms.includes('출혈')
   ) {
-    return 'KTAS2';
+    return { severityLevel: 'KTAS2', matched: true };
   }
 
   if (
@@ -31,7 +36,7 @@ export function inferSeverityFromSymptoms(symptoms: string): Patient['severity']
     normalizedSymptoms.includes('골절') ||
     normalizedSymptoms.includes('고열')
   ) {
-    return 'KTAS3';
+    return { severityLevel: 'KTAS3', matched: true };
   }
 
   if (
@@ -40,8 +45,12 @@ export function inferSeverityFromSymptoms(symptoms: string): Patient['severity']
     normalizedSymptoms.includes('구토') ||
     normalizedSymptoms.includes('어지')
   ) {
-    return 'KTAS4';
+    return { severityLevel: 'KTAS4', matched: true };
   }
 
-  return 'KTAS4';
+  return { severityLevel: 'KTAS4', matched: false };
+}
+
+export function inferSeverityFromSymptoms(symptoms: string): Patient['severity'] {
+  return inferSeverityByKeywords(symptoms).severityLevel;
 }

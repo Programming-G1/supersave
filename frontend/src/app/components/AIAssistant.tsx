@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { X, Send, Sparkles, User, Bot } from 'lucide-react';
-import { requestAiGuide } from '../../api';
+import { requestAiGuide, resolveSeverityLevel } from '../../api';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
 import { ChatMessage } from '../types';
-import type { SeverityLevel } from '../../types';
 
 interface AIAssistantProps {
   onClose: () => void;
@@ -23,35 +22,6 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const inferSeverityLevel = (userMessage: string): SeverityLevel => {
-    const lowerMessage = userMessage.toLowerCase();
-
-    if (
-      lowerMessage.includes('의식') ||
-      lowerMessage.includes('심정지') ||
-      lowerMessage.includes('호흡 없음') ||
-      lowerMessage.includes('대량 출혈')
-    ) {
-      return 'KTAS1';
-    }
-
-    if (
-      lowerMessage.includes('가슴') ||
-      lowerMessage.includes('흉부') ||
-      lowerMessage.includes('심장') ||
-      lowerMessage.includes('호흡곤란') ||
-      lowerMessage.includes('뇌졸중')
-    ) {
-      return 'KTAS2';
-    }
-
-    if (lowerMessage.includes('통증') || lowerMessage.includes('열') || lowerMessage.includes('어지러움')) {
-      return 'KTAS3';
-    }
-
-    return 'KTAS4';
-  };
 
   const hasMedicalContext = (userMessage: string): boolean => {
     const lowerMessage = userMessage.toLowerCase();
@@ -151,7 +121,7 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
 
       const response = await requestAiGuide({
         symptomText: prompt,
-        severityLevel: inferSeverityLevel(prompt),
+        severityLevel: (await resolveSeverityLevel({ symptomText: prompt })).severityLevel,
         userQuestion: prompt,
       });
 

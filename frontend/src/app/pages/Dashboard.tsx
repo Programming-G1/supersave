@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { mockHospitals, mockPatient, congestionData, generateAIAnalysis } from '../data/mockData';
 import { Hospital, HospitalRecommendation } from '../types';
-import { fetchHospitals, fetchRecommendations, searchLocations } from '../../api';
+import { fetchHospitals, fetchRecommendations, resolveSeverityLevel, searchLocations } from '../../api';
 import type { HospitalSummary, LocationSearchResult, RecommendationResult as ApiRecommendationResult } from '../../types';
 import Map from '../components/Map';
 import HospitalCard from '../components/HospitalCard';
 import SymptomInput, { PatientSymptomData } from '../components/SymptomInput';
-import { inferSeverityFromSymptoms } from '../utils/severity';
+import { inferSeverityByKeywords } from '../utils/severity';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -404,40 +404,64 @@ export default function Dashboard() {
   };
 
   const handleRecommendationSubmit = async () => {
-    const symptomData: PatientSymptomData =
-      mode === 'patient'
-        ? {
-            name: patientForm.name.trim() || '환자',
-            age: patientForm.age,
-            gender: patientForm.gender,
-            symptoms: patientForm.symptoms.trim(),
-            severity: inferSeverityFromSymptoms(patientForm.symptoms),
-            bloodPressure: currentPatient.vitalSigns.bloodPressure,
-            heartRate: currentPatient.vitalSigns.heartRate,
-            temperature: currentPatient.vitalSigns.temperature,
-            oxygenSaturation: currentPatient.vitalSigns.oxygenSaturation,
-          }
-        : {
-            ...paramedicForm,
-            name: paramedicForm.name.trim() || '환자',
-            symptoms: paramedicForm.symptoms.trim(),
-          };
+    let severitySource: 'KEYWORD' | 'AI' | 'FALLBACK' | 'MANUAL' = 'MANUAL';
 
-    if (!symptomData.symptoms.trim()) {
+    const trimmedSymptoms = mode === 'patient'
+      ? patientForm.symptoms.trim()
+      : paramedicForm.symptoms.trim();
+
+    if (!trimmedSymptoms) {
       toast.warning('증상을 입력해주세요', {
         description: 'AI가 중증도와 병원 추천을 판단하려면 현재 증상 정보가 필요합니다.',
       });
       return;
     }
 
-    await handleSymptomSubmit(symptomData);
+    let dataToSubmit: PatientSymptomData;
+    if (mode === 'patient') {
+      const severityResult = await resolveSeverityLevel({
+        symptomText: trimmedSymptoms,
+        age: patientForm.age,
+        bloodPressure: currentPatient.vitalSigns.bloodPressure,
+        heartRate: currentPatient.vitalSigns.heartRate,
+        temperature: currentPatient.vitalSigns.temperature,
+        oxygenSaturation: currentPatient.vitalSigns.oxygenSaturation,
+      });
+      severitySource = severityResult.source;
+      dataToSubmit = {
+        name: patientForm.name.trim() || '환자',
+        age: patientForm.age,
+        gender: patientForm.gender,
+        symptoms: trimmedSymptoms,
+        severity: severityResult.severityLevel,
+        bloodPressure: currentPatient.vitalSigns.bloodPressure,
+        heartRate: currentPatient.vitalSigns.heartRate,
+        temperature: currentPatient.vitalSigns.temperature,
+        oxygenSaturation: currentPatient.vitalSigns.oxygenSaturation,
+      };
+    } else {
+      dataToSubmit = {
+        ...paramedicForm,
+        name: paramedicForm.name.trim() || '환자',
+        symptoms: trimmedSymptoms,
+      };
+    }
+
+    await handleSymptomSubmit(dataToSubmit);
 
     if (mode === 'patient') {
-      toast.info(`AI 판단 중증도: ${symptomData.severity}`, {
-        description: '환자모드에서는 중증도를 직접 선택하지 않고 증상 기반으로 자동 판단합니다.',
+      const sourceDescription =
+        severitySource === 'AI'
+          ? '키워드가 부족해 AI가 증상 설명을 보완 해석했습니다.'
+          : severitySource === 'FALLBACK'
+            ? 'AI 응답이 없어서 보수적 fallback 기준으로 중증도를 분류했습니다.'
+            : '증상 키워드가 일치해 자동 판단했습니다.';
+
+      toast.info(`AI 판단 중증도: ${dataToSubmit.severity}`, {
+        description: `${sourceDescription} 환자모드에서는 KTAS를 직접 선택하지 않습니다.`,
       });
     } else {
-      toast.info(`입력 중증도: ${symptomData.severity}`, {
+      toast.info(`입력 중증도: ${dataToSubmit.severity}`, {
         description: '구급대원모드는 입력한 KTAS와 출발 위치를 함께 반영합니다.',
       });
     }
@@ -593,9 +617,14 @@ export default function Dashboard() {
   };
 
   const activeSymptoms = mode === 'patient' ? patientForm.symptoms : paramedicForm.symptoms;
+  const patientKeywordSeverity = inferSeverityByKeywords(activeSymptoms);
   const recommendationSeverityLabel =
     mode === 'patient'
-      ? `AI 판단 예상: ${activeSymptoms.trim() ? inferSeverityFromSymptoms(activeSymptoms) : '-'}`
+      ? activeSymptoms.trim()
+        ? patientKeywordSeverity.matched
+          ? `AI 판단 예상: ${patientKeywordSeverity.severityLevel}`
+          : 'AI 판단 예상: 키워드 미일치 시 AI 보완 판정'
+        : 'AI 판단 예상: -'
       : `입력 중증도: ${paramedicForm.severity}`;
 
   if (!isHydrated) return null;

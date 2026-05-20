@@ -1,8 +1,11 @@
 import { apiClient, useMockApi } from '@/api/client';
+import { inferSeverityByKeywords } from '@/app/utils/severity';
 import { mockAlerts, mockHospitals } from '@/data/mockData';
 import type {
   AiGuideRequest,
   AiGuideResponse,
+  AiSeverityRequest,
+  AiSeverityResponse,
   AlertItem,
   DepartureQueueItem,
   DepartureRequest,
@@ -55,6 +58,29 @@ let mockDepartureQueue: DepartureQueueItem[] = [
     status: 'ACCEPTED',
   },
 ];
+
+function buildFallbackSeverityResponse(request: AiSeverityRequest): AiSeverityResponse {
+  if (request.oxygenSaturation !== undefined && request.oxygenSaturation < 90) {
+    return { severityLevel: 'KTAS1', source: 'FALLBACK' };
+  }
+
+  if (request.heartRate !== undefined && (request.heartRate < 45 || request.heartRate > 140)) {
+    return { severityLevel: 'KTAS2', source: 'FALLBACK' };
+  }
+
+  const systolicPressure = request.bloodPressure
+    ? Number.parseInt(request.bloodPressure.split('/')[0] ?? '', 10)
+    : Number.NaN;
+  if (!Number.isNaN(systolicPressure) && systolicPressure < 90) {
+    return { severityLevel: 'KTAS2', source: 'FALLBACK' };
+  }
+
+  if (request.temperature !== undefined && request.temperature >= 39.5) {
+    return { severityLevel: 'KTAS3', source: 'FALLBACK' };
+  }
+
+  return { severityLevel: 'KTAS3', source: 'FALLBACK' };
+}
 
 function requireHospital(id?: number) {
   const hospital = id
@@ -221,4 +247,29 @@ export async function requestAiGuide(request: AiGuideRequest) {
       ? `질문 "${request.userQuestion}" 에 대한 MVP 응답입니다. Gemini 연동 시 더 정교한 비교 설명을 제공합니다.`
       : '현재 상태에서는 가까운 수용 가능 병원을 우선 비교하는 것이 좋습니다.',
   };
+}
+
+export async function requestAiSeverity(request: AiSeverityRequest) {
+  if (useMockApi) {
+    await wait();
+    return buildFallbackSeverityResponse(request);
+  }
+
+  return (await apiClient.post<AiSeverityResponse>('/api/ai/severity', request)).data;
+}
+
+export async function resolveSeverityLevel(request: AiSeverityRequest): Promise<AiSeverityResponse> {
+  const keywordInference = inferSeverityByKeywords(request.symptomText);
+  if (keywordInference.matched) {
+    return {
+      severityLevel: keywordInference.severityLevel,
+      source: 'KEYWORD',
+    };
+  }
+
+  try {
+    return await requestAiSeverity(request);
+  } catch {
+    return buildFallbackSeverityResponse(request);
+  }
 }
