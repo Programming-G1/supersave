@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router';
 
 import { useMode } from '../contexts/ModeContext';
 
-import { fetchHospitals, registerDeparture } from '../../api';
+import { fetchHospitals, registerDeparture, requestAiTriage } from '../../api';
 import type { HospitalSummary } from '../../types';
 
 import { mockHospitals, mockPatient } from '../data/mockData';
@@ -105,9 +105,7 @@ export default function TransferRequest() {
   });
 
   const selectedHospital = hospitals.find((h) => h.id === selectedHospitalId);
-  const displaySeverity = mode === 'patient'
-    ? inferSeverityFromSymptoms(patientData.symptoms)
-    : patientData.severity;
+  const displaySeverity = patientData.severity;
   const hasPrefilledTransfer = Boolean(navigationPatientData);
   const expectedMoveMinutes = selectedHospital?.estimatedTime ?? 0;
   const expectedWaitMinutes = selectedHospital?.currentWaitTime ?? 0;
@@ -191,9 +189,29 @@ export default function TransferRequest() {
     }
 
     setIsSubmitting(true);
-    const severityLevel = mode === 'patient'
-      ? inferSeverityFromSymptoms(patientData.symptoms)
-      : patientData.severity;
+
+    let severityLevel = patientData.severity;
+    let triageReasoning = '';
+
+    if (mode === 'patient') {
+      try {
+        const triage = await requestAiTriage({
+          symptomText: patientData.symptoms,
+          age: patientData.age,
+          gender: patientData.gender,
+          bloodPressure: patientData.bloodPressure,
+          heartRate: patientData.heartRate,
+          temperature: patientData.temperature,
+          oxygenSaturation: patientData.oxygenSaturation,
+        });
+        severityLevel = triage.severityLevel;
+        triageReasoning = triage.reasoning;
+      } catch {
+        severityLevel = inferSeverityFromSymptoms(patientData.symptoms);
+        triageReasoning = 'AI 중증도 분석 호출에 실패해 기존 증상 키워드 기반 추정값을 사용했습니다.';
+      }
+    }
+
     setPatientData((prev) => ({ ...prev, severity: severityLevel }));
 
     try {
@@ -212,6 +230,11 @@ export default function TransferRequest() {
       setInitialEta(response.etaMinutes);
       setIsSubmitting(false);
       setTransferStarted(true);
+      if (mode === 'patient') {
+        toast.info(`AI 판단 중증도: ${severityLevel}`, {
+          description: triageReasoning || 'Gemini가 증상과 활력징후를 분석해 KTAS 참고 단계를 추정했습니다.',
+        });
+      }
       toast.success('이송이 시작되었습니다!', {
         description: `${selectedHospital?.name}에 도착 예정 요청이 등록되었습니다.`,
       });
@@ -583,7 +606,13 @@ export default function TransferRequest() {
                   <textarea
                     id="symptoms"
                     value={patientData.symptoms}
-                    onChange={(e) => setPatientData({ ...patientData, symptoms: e.target.value })}
+                    onChange={(e) => setPatientData({
+                      ...patientData,
+                      symptoms: e.target.value,
+                      severity: mode === 'patient'
+                        ? inferSeverityFromSymptoms(e.target.value)
+                        : patientData.severity,
+                    })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 min-h-[80px]"
                     required
                   />
@@ -595,7 +624,7 @@ export default function TransferRequest() {
                       <div>
                         <p className="text-sm font-medium text-blue-900">AI 판단 중증도</p>
                         <p className="mt-1 text-xs text-blue-700">
-                          환자모드는 KTAS를 직접 선택하지 않고 증상 기반으로 자동 판단합니다.
+                          환자모드는 제출 시 AI가 증상과 활력징후를 함께 보고 KTAS 참고 단계를 재판단합니다.
                         </p>
                       </div>
                       <Badge className={getSeverityColor(displaySeverity)}>{displaySeverity}</Badge>
