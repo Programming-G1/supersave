@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { mockHospitals, mockPatient, congestionData, generateAIAnalysis } from '../data/mockData';
 import { Hospital, HospitalRecommendation } from '../types';
-import { fetchHospitals, fetchRecommendations, searchLocations } from '../../api';
-import type { HospitalSummary, LocationSearchResult, RecommendationResult as ApiRecommendationResult } from '../../types';
+import { fetchHospitals, fetchRecommendations, requestAiTriage, searchLocations } from '../../api';
+import type {
+  AiTriageResponse,
+  HospitalSummary,
+  LocationSearchResult,
+  RecommendationResult as ApiRecommendationResult,
+} from '../../types';
 import Map from '../components/Map';
 import HospitalCard from '../components/HospitalCard';
 import SymptomInput, { PatientSymptomData } from '../components/SymptomInput';
@@ -144,6 +149,7 @@ export default function Dashboard() {
   const [isRecommendationLoading, setIsRecommendationLoading] = useState(false);
   const [hasRecommendationRequested, setHasRecommendationRequested] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [triageResult, setTriageResult] = useState<AiTriageResponse | null>(null);
   const [sourceHospitals, setSourceHospitals] = useState<Hospital[]>(mockHospitals);
   const [hospitalLoadError, setHospitalLoadError] = useState<string | null>(null);
 
@@ -161,6 +167,7 @@ export default function Dashboard() {
     setApiRecommendations(null);
     setHasRecommendationRequested(false);
     setRecommendationError(null);
+    setTriageResult(null);
   };
 
   const updatePatientForm = (nextForm: typeof patientForm) => {
@@ -403,6 +410,61 @@ export default function Dashboard() {
 
   };
 
+  const analyzeSeverityWithAi = async (
+    data: PatientSymptomData
+  ): Promise<{ data: PatientSymptomData; triage: AiTriageResponse }> => {
+    const fallbackSeverity = mode === 'patient'
+      ? inferSeverityFromSymptoms(data.symptoms)
+      : data.severity;
+
+    try {
+      const result = await requestAiTriage({
+        symptomText: data.symptoms,
+        age: data.age,
+        gender: data.gender,
+        bloodPressure: data.bloodPressure,
+        heartRate: data.heartRate,
+        temperature: data.temperature,
+        oxygenSaturation: data.oxygenSaturation,
+      });
+
+      setTriageResult(result);
+
+      if (mode === 'paramedic') {
+        setParamedicForm((prev) => ({ ...prev, severity: result.severityLevel }));
+      }
+
+      return {
+        data: {
+          ...data,
+          severity: result.severityLevel,
+        },
+        triage: result,
+      };
+    } catch {
+      const fallbackResult: AiTriageResponse = {
+        severityLevel: fallbackSeverity,
+        summary: data.symptoms,
+        recommendedDepartments: ['응급의학과'],
+        warningSigns: ['의식 변화', '호흡 악화', '통증 악화'],
+        reasoning: 'Gemini 중증도 분석 호출에 실패해 기존 증상 키워드 기반 추정값을 사용했습니다.',
+        aiUsed: false,
+      };
+      setTriageResult(fallbackResult);
+      toast.warning('AI 중증도 분석에 실패해 기본 추정값을 사용합니다', {
+        description: `${fallbackSeverity} 기준으로 병원 추천을 계속 진행합니다.`,
+      });
+
+      return {
+        data: {
+          ...data,
+          severity: fallbackSeverity,
+        },
+        triage: fallbackResult,
+      };
+    }
+  };
+
   const handleRecommendationSubmit = async () => {
     const symptomData: PatientSymptomData =
       mode === 'patient'
@@ -430,15 +492,19 @@ export default function Dashboard() {
       return;
     }
 
-    await handleSymptomSubmit(symptomData);
+    setIsRecommendationLoading(true);
+    const aiAnalysis = await analyzeSeverityWithAi(symptomData);
+    await handleSymptomSubmit(aiAnalysis.data);
 
     if (mode === 'patient') {
-      toast.info(`AI 판단 중증도: ${symptomData.severity}`, {
-        description: '환자모드에서는 중증도를 직접 선택하지 않고 증상 기반으로 자동 판단합니다.',
+      toast.info(`AI 판단 중증도: ${aiAnalysis.data.severity}`, {
+        description: aiAnalysis.triage.aiUsed
+          ? 'Gemini가 증상과 활력징후를 분석해 KTAS 참고 단계를 추정했습니다.'
+          : 'AI 응답 실패 시 기본 추정 로직으로 대체됩니다.',
       });
     } else {
-      toast.info(`입력 중증도: ${symptomData.severity}`, {
-        description: '구급대원모드는 입력한 KTAS와 출발 위치를 함께 반영합니다.',
+      toast.info(`AI 분석 중증도: ${aiAnalysis.data.severity}`, {
+        description: '구급대원 입력값을 바탕으로 Gemini가 KTAS 참고 단계를 재분석했습니다.',
       });
     }
   };
@@ -594,9 +660,11 @@ export default function Dashboard() {
 
   const activeSymptoms = mode === 'patient' ? patientForm.symptoms : paramedicForm.symptoms;
   const recommendationSeverityLabel =
-    mode === 'patient'
-      ? `AI 판단 예상: ${activeSymptoms.trim() ? inferSeverityFromSymptoms(activeSymptoms) : '-'}`
-      : `입력 중증도: ${paramedicForm.severity}`;
+    triageResult
+      ? `${triageResult.aiUsed ? 'Gemini 분석' : '기본 추정'}: ${triageResult.severityLevel}`
+      : mode === 'patient'
+        ? `AI 분석 예정${activeSymptoms.trim() ? ` (임시 추정 ${inferSeverityFromSymptoms(activeSymptoms)})` : ''}`
+        : `AI 분석 예정 / 입력값: ${paramedicForm.severity}`;
 
   if (!isHydrated) return null;
 
@@ -613,8 +681,8 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900">AI 맞춤 병원 추천</h3>
-                  <p className="text-sm text-gray-600">
-                    환자 정보와 증상만 입력하면 AI가 중증도를 판단하고 병원을 추천합니다.
+                <p className="text-sm text-gray-600">
+                    환자 정보와 증상을 Gemini가 분석해 중증도를 추정하고 병원 추천에 반영합니다.
                   </p>
                   <p className="mt-1 text-xs text-blue-700">
                     환자모드에서는 KTAS를 직접 선택하지 않습니다.
@@ -798,7 +866,7 @@ export default function Dashboard() {
               className="bg-white text-blue-700 hover:bg-blue-50"
             >
               <Sparkles className="w-4 h-4 mr-2" />
-              {isRecommendationLoading ? 'AI 추천 계산 중...' : 'AI 병원 추천 받기'}
+              {isRecommendationLoading ? 'AI 중증도 분석 중...' : 'AI 중증도 분석 후 추천 받기'}
             </Button>
           </div>
         </Card>
@@ -818,6 +886,11 @@ export default function Dashboard() {
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge className="bg-red-600">AI 판단 중증도: {currentPatient.severity}</Badge>
+                  {triageResult && (
+                    <Badge variant="outline" className="border-purple-200 text-purple-700">
+                      {triageResult.aiUsed ? 'Gemini 중증도 분석' : '기본 추정 fallback'}
+                    </Badge>
+                  )}
                   {apiRecommendations && (
                     <Badge variant="outline" className="border-blue-200 text-blue-700">
                       백엔드 추천 API 연동
@@ -839,6 +912,25 @@ export default function Dashboard() {
           {recommendationError && (
             <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
               {recommendationError}
+            </div>
+          )}
+
+          {triageResult && (
+            <div className="mb-4 rounded-lg border border-purple-100 bg-purple-50 p-4">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-purple-900">AI 중증도 분석 근거</p>
+                  <p className="mt-1 text-sm text-purple-800">{triageResult.reasoning}</p>
+                  <p className="mt-1 text-xs text-purple-700">{triageResult.summary}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {triageResult.recommendedDepartments.map((department) => (
+                    <Badge key={department} variant="outline" className="border-purple-200 bg-white text-purple-700">
+                      {department}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 

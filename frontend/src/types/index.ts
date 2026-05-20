@@ -106,6 +106,25 @@ export interface AiGuideResponse {
   answer: string;
 }
 
+export interface AiTriageRequest {
+  symptomText: string;
+  age?: number;
+  gender?: string;
+  bloodPressure?: string;
+  heartRate?: number;
+  temperature?: number;
+  oxygenSaturation?: number;
+}
+
+export interface AiTriageResponse {
+  severityLevel: SeverityLevel;
+  summary: string;
+  recommendedDepartments: string[];
+  warningSigns: string[];
+  reasoning: string;
+  aiUsed: boolean;
+}
+
 export interface AlertItem {
   id: string;
   level: 'NORMAL' | 'INFO' | 'WARNING';

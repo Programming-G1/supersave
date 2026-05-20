@@ -1,15 +1,22 @@
 import { useState } from 'react';
 import { X, Send, Sparkles, User, Bot } from 'lucide-react';
-import { requestAiGuide } from '../../api';
+import { fetchRecommendations, requestAiGuide, requestAiTriage, searchLocations } from '../../api';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
 import { ChatMessage } from '../types';
-import type { SeverityLevel } from '../../types';
+import type { LocationSearchResult, RecommendationResult, SeverityLevel } from '../../types';
 
 interface AIAssistantProps {
   onClose: () => void;
+}
+
+interface AssistantContext {
+  symptomText?: string;
+  severityLevel?: SeverityLevel;
+  location?: LocationSearchResult;
+  pendingRecommendation?: boolean;
 }
 
 export default function AIAssistant({ onClose }: AIAssistantProps) {
@@ -23,6 +30,7 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [assistantContext, setAssistantContext] = useState<AssistantContext>({});
 
   const inferSeverityLevel = (userMessage: string): SeverityLevel => {
     const lowerMessage = userMessage.toLowerCase();
@@ -52,6 +60,8 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
 
     return 'KTAS4';
   };
+
+  const normalizeMessage = (userMessage: string) => userMessage.trim().toLowerCase().replace(/\s+/g, '');
 
   const hasMedicalContext = (userMessage: string): boolean => {
     const lowerMessage = userMessage.toLowerCase();
@@ -84,13 +94,155 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
       'ktas',
       '중증도',
       '대기',
+      '고열',
+      '발작',
     ];
 
     return medicalKeywords.some((keyword) => lowerMessage.includes(keyword));
   };
 
+  const isRecommendationIntent = (userMessage: string): boolean => {
+    const normalizedMessage = normalizeMessage(userMessage);
+    return [
+      '가까운',
+      '근처',
+      '어디',
+      '어디냐',
+      '어디냐고',
+      '추천',
+      '병원추천',
+      '응급실추천',
+      '가까운곳',
+      '대기짧',
+      '빨리',
+    ].some((keyword) => normalizedMessage.includes(keyword));
+  };
+
+  const shouldTreatAsLocation = (userMessage: string, context: AssistantContext): boolean => {
+    const normalizedMessage = normalizeMessage(userMessage);
+    if (hasMedicalContext(userMessage) || isRecommendationIntent(userMessage)) {
+      return false;
+    }
+
+    return Boolean(context.pendingRecommendation) || [
+      '대학교',
+      '캠퍼스',
+      '캠',
+      '단국',
+      '역',
+      '터미널',
+      '동',
+      '구',
+      '시',
+      '로',
+      '길',
+      '주소',
+      '현재위치',
+    ].some((keyword) => normalizedMessage.includes(keyword));
+  };
+
+  const sortRecommendations = (items: RecommendationResult[], userMessage: string) => {
+    const normalizedMessage = normalizeMessage(userMessage);
+    const sorted = [...items];
+
+    if (normalizedMessage.includes('대기')) {
+      return sorted.sort((a, b) => a.estimatedWaitMinutes - b.estimatedWaitMinutes);
+    }
+
+    if (normalizedMessage.includes('총') || normalizedMessage.includes('빨리')) {
+      return sorted.sort((a, b) => a.totalEstimatedMinutes - b.totalEstimatedMinutes);
+    }
+
+    if (normalizedMessage.includes('가까') || normalizedMessage.includes('근처') || normalizedMessage.includes('어디')) {
+      return sorted.sort((a, b) => a.etaMinutes - b.etaMinutes || a.distanceKm - b.distanceKm);
+    }
+
+    return sorted;
+  };
+
+  const buildLocationQueries = (userMessage: string) => {
+    const trimmedMessage = userMessage.trim();
+    const expandedCampus = trimmedMessage
+      .replace(/죽전캠(?!퍼스)/g, '죽전캠퍼스')
+      .replace(/천안캠(?!퍼스)/g, '천안캠퍼스');
+    const queries = [trimmedMessage, expandedCampus];
+
+    if (trimmedMessage.includes('단국') && trimmedMessage.includes('죽전')) {
+      queries.push('단국대학교 죽전캠퍼스');
+    }
+
+    return [...new Set(queries.filter(Boolean))];
+  };
+
+  const findLocation = async (userMessage: string) => {
+    for (const query of buildLocationQueries(userMessage)) {
+      const locations = await searchLocations(query);
+      if (locations.length > 0) {
+        return locations[0];
+      }
+    }
+
+    return null;
+  };
+
+  const buildRecommendationMessage = (
+    recommendations: RecommendationResult[],
+    context: Required<Pick<AssistantContext, 'location' | 'symptomText' | 'severityLevel'>>,
+    userMessage: string,
+  ) => {
+    const topRecommendations = sortRecommendations(recommendations, userMessage).slice(0, 3);
+    if (topRecommendations.length === 0) {
+      return '현재 조건으로 추천 가능한 병원을 찾지 못했습니다. 위치를 조금 더 넓게 보거나 증상 정보를 다시 확인해주세요.';
+    }
+
+    const lines = topRecommendations.map((item, index) => (
+      `${index + 1}. ${item.hospitalName}\n` +
+      `   거리 ${item.distanceKm}km · 이동 ${item.etaMinutes}분 · 대기 ${item.estimatedWaitMinutes}분 · 총 ${item.totalEstimatedMinutes}분 예상 · 가용 병상 ${item.availableBeds}개`
+    ));
+
+    return [
+      `현재 기준으로는 ${topRecommendations[0].hospitalName}이 가장 적합해 보여요.`,
+      `출발 위치: ${context.location.name}`,
+      `증상: ${context.symptomText} / AI 참고 중증도: ${context.severityLevel}`,
+      '',
+      ...lines,
+      '',
+      '이 결과는 의사결정 보조용입니다. 증상이 악화되거나 호흡곤란, 의식저하가 있으면 즉시 119에 연락하세요.',
+    ].join('\n');
+  };
+
+  const recommendHospitals = async (context: AssistantContext, userMessage: string) => {
+    if (!context.location) {
+      setAssistantContext((prev) => ({ ...prev, pendingRecommendation: true }));
+      return '가까운 병원을 추천하려면 출발 위치가 필요해요. 예: "단국대학교 죽전캠퍼스", "서울역"처럼 현재 위치를 알려주세요.';
+    }
+
+    if (!context.symptomText || !context.severityLevel) {
+      setAssistantContext((prev) => ({ ...prev, pendingRecommendation: true }));
+      return `출발 위치는 ${context.location.name}으로 잡았어요. 이제 환자 증상을 알려주세요. 예: "38도 열이 나요", "가슴 통증과 호흡곤란이 있어요"`;
+    }
+
+    const recommendations = await fetchRecommendations({
+      latitude: context.location.latitude,
+      longitude: context.location.longitude,
+      severityLevel: context.severityLevel,
+      symptomSummary: context.symptomText,
+    });
+
+    setAssistantContext((prev) => ({ ...prev, pendingRecommendation: false }));
+    return buildRecommendationMessage(
+      recommendations,
+      {
+        location: context.location,
+        symptomText: context.symptomText,
+        severityLevel: context.severityLevel,
+      },
+      userMessage,
+    );
+  };
+
   const getLocalResponse = (userMessage: string): string | null => {
-    const normalizedMessage = userMessage.trim().toLowerCase().replace(/\s+/g, '');
+    const normalizedMessage = normalizeMessage(userMessage);
 
     if (['하이', '안녕', '안녕하세요', 'ㅎㅇ', 'hello', 'hi'].includes(normalizedMessage)) {
       return '안녕하세요! 증상을 입력해주세요. 환자의 증상, 나이, 기저질환, 현재 위치를 알려주시면 응급실 선택을 도와드릴게요.';
@@ -111,10 +263,6 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
 
     if (normalizedMessage.includes('고마워') || normalizedMessage.includes('감사')) {
       return '도움이 됐다니 다행입니다. 추가 증상이나 병원 선택 기준이 있으면 이어서 알려주세요.';
-    }
-
-    if (!hasMedicalContext(userMessage)) {
-      return '응급 판단을 위해 증상을 입력해주세요. 예: "38도 열이 나고 숨이 차요", "가슴 통증이 있어요"처럼 현재 상태를 알려주시면 됩니다.';
     }
 
     return null;
@@ -149,9 +297,99 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
         return;
       }
 
+      if (shouldTreatAsLocation(prompt, assistantContext)) {
+        const selectedLocation = await findLocation(prompt);
+        if (!selectedLocation) {
+          const aiMessage: ChatMessage = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: '위치를 찾지 못했어요. 건물명이나 주소를 조금 더 정확히 입력해주세요. 예: "단국대학교 죽전캠퍼스"',
+            timestamp: new Date(),
+          };
+
+          setMessages((prev) => [...prev, aiMessage]);
+          return;
+        }
+
+        const nextContext = { ...assistantContext, location: selectedLocation, pendingRecommendation: true };
+        setAssistantContext(nextContext);
+
+        const aiMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: await recommendHospitals(nextContext, prompt),
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+        return;
+      }
+
+      if (isRecommendationIntent(prompt)) {
+        const aiMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: await recommendHospitals(assistantContext, prompt),
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+        return;
+      }
+
+      if (hasMedicalContext(prompt)) {
+        const triage = await requestAiTriage({ symptomText: prompt });
+        const nextContext = {
+          ...assistantContext,
+          symptomText: prompt,
+          severityLevel: triage.severityLevel,
+        };
+        setAssistantContext(nextContext);
+
+        if (assistantContext.pendingRecommendation && nextContext.location) {
+          const aiMessage: ChatMessage = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: await recommendHospitals(nextContext, prompt),
+            timestamp: new Date(),
+          };
+
+          setMessages((prev) => [...prev, aiMessage]);
+          return;
+        }
+
+        const response = await requestAiGuide({
+          symptomText: prompt,
+          severityLevel: triage.severityLevel,
+          userQuestion: prompt,
+        });
+
+        const aiMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: `${response.answer}\n\nAI 참고 중증도: ${triage.severityLevel}\n${triage.reasoning}`,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+        return;
+      }
+
+      if (!assistantContext.symptomText && !hasMedicalContext(prompt)) {
+        const aiMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: '응급 판단을 위해 증상을 입력해주세요. 예: "38도 열이 나고 숨이 차요", "가슴 통증이 있어요"처럼 현재 상태를 알려주시면 됩니다.',
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+        return;
+      }
+
       const response = await requestAiGuide({
-        symptomText: prompt,
-        severityLevel: inferSeverityLevel(prompt),
+        symptomText: assistantContext.symptomText ?? prompt,
+        severityLevel: assistantContext.severityLevel ?? inferSeverityLevel(prompt),
         userQuestion: prompt,
       });
 

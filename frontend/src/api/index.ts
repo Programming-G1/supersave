@@ -3,6 +3,8 @@ import { mockAlerts, mockHospitals } from '@/data/mockData';
 import type {
   AiGuideRequest,
   AiGuideResponse,
+  AiTriageRequest,
+  AiTriageResponse,
   AlertItem,
   DepartureQueueItem,
   DepartureRequest,
@@ -218,7 +220,38 @@ export async function requestAiGuide(request: AiGuideRequest) {
     recommendationReason: '병상 여유, 이동 시간, 중증도 수용 가능 범위를 함께 고려한 결과입니다.',
     actionGuide: ['의식과 호흡 여부를 먼저 확인하세요.', '기저질환과 복용약을 함께 준비하세요.', '증상 악화 시 즉시 119에 연락하세요.'],
     answer: request.userQuestion
-      ? `질문 "${request.userQuestion}" 에 대한 MVP 응답입니다. Gemini 연동 시 더 정교한 비교 설명을 제공합니다.`
+      ? '현재 AI 서버가 혼잡해 기본 안내로 답변합니다. 가까운 병원만 보지 말고 이동 시간, 예상 대기시간, 병상 여유를 함께 비교하세요.'
       : '현재 상태에서는 가까운 수용 가능 병원을 우선 비교하는 것이 좋습니다.',
+  };
+}
+
+export async function requestAiTriage(request: AiTriageRequest) {
+  if (!useMockApi) {
+    return (await apiClient.post<AiTriageResponse>('/api/ai/triage', request)).data;
+  }
+
+  await wait();
+  const symptoms = request.symptomText.toLowerCase();
+  let severityLevel: AiTriageResponse['severityLevel'] = 'KTAS3';
+
+  if (symptoms.includes('의식') || symptoms.includes('경련') || symptoms.includes('쇼크')) {
+    severityLevel = 'KTAS1';
+  } else if (symptoms.includes('흉통') || symptoms.includes('호흡곤란') || symptoms.includes('가슴')) {
+    severityLevel = 'KTAS2';
+  } else if (symptoms.includes('복통') || symptoms.includes('외상') || symptoms.includes('골절')) {
+    severityLevel = 'KTAS3';
+  } else if (symptoms.includes('발열') || symptoms.includes('두통')) {
+    severityLevel = 'KTAS4';
+  } else {
+    severityLevel = 'KTAS5';
+  }
+
+  return {
+    severityLevel,
+    summary: `${request.symptomText} 증상 기준으로 ${severityLevel} 참고 단계를 추정했습니다.`,
+    recommendedDepartments: ['응급의학과'],
+    warningSigns: ['의식 변화', '호흡 악화', '통증 악화'],
+    reasoning: 'Mock 환경에서는 증상 키워드 기반으로 중증도를 추정합니다.',
+    aiUsed: false,
   };
 }

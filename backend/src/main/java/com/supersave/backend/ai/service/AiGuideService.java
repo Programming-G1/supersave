@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
@@ -51,26 +52,34 @@ public class AiGuideService {
             return templateAnswer(request);
         }
 
-        try {
-            GeminiGenerateResponse response = restClientBuilder
-                    .baseUrl(geminiProperties.getBaseUrl())
-                    .build()
-                    .post()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/v1beta/models/{model}:generateContent")
-                            .queryParam("key", geminiProperties.getApiKey())
-                            .build(geminiProperties.getModel()))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(buildGeminiRequest(request, severityTone))
-                    .retrieve()
-                    .body(GeminiGenerateResponse.class);
+        GeminiGenerateRequest geminiRequest = buildGeminiRequest(request, severityTone);
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                GeminiGenerateResponse response = restClientBuilder
+                        .baseUrl(geminiProperties.getBaseUrl())
+                        .build()
+                        .post()
+                        .uri(uriBuilder -> uriBuilder
+                                .path("/v1beta/models/{model}:generateContent")
+                                .queryParam("key", geminiProperties.getApiKey())
+                                .build(geminiProperties.getModel()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(geminiRequest)
+                        .retrieve()
+                        .body(GeminiGenerateResponse.class);
 
-            String answer = extractAnswer(response);
-            return answer == null || answer.isBlank() ? templateAnswer(request) : answer.trim();
-        } catch (Exception exception) {
-            log.warn("Gemini API 호출에 실패해 템플릿 응답으로 대체합니다.", exception);
-            return templateAnswer(request);
+                String answer = extractAnswer(response);
+                return answer == null || answer.isBlank() ? templateAnswer(request) : answer.trim();
+            } catch (HttpServerErrorException.ServiceUnavailable exception) {
+                log.warn("Gemini API가 일시적으로 혼잡합니다. attempt={}", attempt);
+                sleepBeforeRetry(attempt);
+            } catch (Exception exception) {
+                log.warn("Gemini API 호출에 실패해 기본 응답으로 대체합니다.", exception);
+                break;
+            }
         }
+
+        return templateAnswer(request);
     }
 
     private boolean geminiConfigured() {
@@ -99,7 +108,7 @@ public class AiGuideService {
                 .formatted(request.symptomText(), request.severityLevel(), severityTone, question);
 
         return new GeminiGenerateRequest(
-                new GeminiContent(null, List.of(new GeminiPart(userPrompt))),
+                List.of(new GeminiContent(null, List.of(new GeminiPart(userPrompt)))),
                 new GeminiContent(null, List.of(new GeminiPart("""
                         당신은 응급실 의사결정 보조 시스템의 AI 가이드입니다.
                         인사나 일반 질문에는 응급 환자처럼 분류하지 말고 자연스럽게 응답하세요.
@@ -132,14 +141,38 @@ public class AiGuideService {
     }
 
     private String templateAnswer(AiGuideRequest request) {
-        return (request.userQuestion() == null || request.userQuestion().isBlank())
-                ? "현재 입력 기준으로는 가까운 병원과 수용 가능 병원을 함께 비교하는 것이 좋습니다."
-                : "질문 \"" + request.userQuestion() + "\" 에 대해 현재는 기본 가이드 응답을 제공하며, Gemini 연동 시 더 정교한 자연어 응답으로 확장됩니다.";
+        String question = request.userQuestion() == null ? "" : request.userQuestion().trim();
+        if (question.isBlank()) {
+            return "현재 입력 기준으로는 가까운 병원과 수용 가능 병원을 함께 비교하는 것이 좋습니다. 증상 변화가 있으면 즉시 119 또는 응급실에 알리세요.";
+        }
+
+        if (containsAny(question, "안녕", "너", "누구", "뭐야", "소개")) {
+            return "저는 SuperSave AI 도우미입니다. 응급실 이송 판단을 돕기 위해 증상, 나이, 기저질환, 현재 위치를 알려주시면 참고 안내를 드릴게요.";
+        }
+
+        return "현재 AI 서버가 혼잡해 기본 안내로 답변합니다. 가까운 병원만 보지 말고 이동 시간, 예상 대기시간, 병상 여유, 중증도 수용 가능 여부를 함께 비교하세요.";
+    }
+
+    private void sleepBeforeRetry(int attempt) {
+        try {
+            Thread.sleep(250L * attempt);
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private boolean containsAny(String source, String... keywords) {
+        for (String keyword : keywords) {
+            if (source.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private record GeminiGenerateRequest(
-            GeminiContent contents,
+            List<GeminiContent> contents,
             GeminiContent systemInstruction,
             GeminiGenerationConfig generationConfig
     ) {
