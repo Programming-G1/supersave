@@ -75,6 +75,9 @@ export default function TransferRequest() {
   const location = useLocation();
   const navigate = useNavigate();
   const { mode } = useMode();
+  const navigationPatientData = location.state?.patientData;
+  const navigationHospital = location.state?.selectedHospital as Hospital | undefined;
+  const requestLocation = location.state?.userLocation ?? { lat: 37.5665, lng: 126.9780 };
   const [selectedHospitalId, setSelectedHospitalId] = useState<string | null>(
     location.state?.selectedHospitalId || null
   );
@@ -82,9 +85,11 @@ export default function TransferRequest() {
   const [transferStarted, setTransferStarted] = useState(false);
   const [eta, setEta] = useState<number>(0);
   const [initialEta, setInitialEta] = useState<number | null>(null);
-  const [hospitals, setHospitals] = useState<Hospital[]>(mockHospitals);
-  const navigationPatientData = location.state?.patientData;
-  const requestLocation = location.state?.userLocation ?? { lat: 37.5665, lng: 126.9780 };
+  const [hospitals, setHospitals] = useState<Hospital[]>(
+    navigationHospital
+      ? [navigationHospital, ...mockHospitals.filter((hospital) => hospital.id !== navigationHospital.id)]
+      : mockHospitals
+  );
 
   // 환자 정보 폼 상태
   const [patientData, setPatientData] = useState({
@@ -103,6 +108,10 @@ export default function TransferRequest() {
   const displaySeverity = mode === 'patient'
     ? inferSeverityFromSymptoms(patientData.symptoms)
     : patientData.severity;
+  const hasPrefilledTransfer = Boolean(navigationPatientData);
+  const expectedMoveMinutes = selectedHospital?.estimatedTime ?? 0;
+  const expectedWaitMinutes = selectedHospital?.currentWaitTime ?? 0;
+  const expectedTotalMinutes = expectedMoveMinutes + expectedWaitMinutes;
 
   const resolveBackendHospitalId = (hospitalId: string | null) => {
     if (!hospitalId) return null;
@@ -122,10 +131,22 @@ export default function TransferRequest() {
         const mappedHospitals = hospitalList
           .filter((hospital) => hospital.latitude && hospital.longitude)
           .map(toAppHospital);
-        setHospitals(mappedHospitals.length > 0 ? mappedHospitals : mockHospitals);
+        const nextHospitals = mappedHospitals.length > 0 ? mappedHospitals : mockHospitals;
+        setHospitals(
+          navigationHospital
+            ? [
+                navigationHospital,
+                ...nextHospitals.filter((hospital) => hospital.id !== navigationHospital.id),
+              ]
+            : nextHospitals
+        );
       } catch {
         if (!cancelled) {
-          setHospitals(mockHospitals);
+          setHospitals(
+            navigationHospital
+              ? [navigationHospital, ...mockHospitals.filter((hospital) => hospital.id !== navigationHospital.id)]
+              : mockHospitals
+          );
         }
       }
     }
@@ -134,7 +155,7 @@ export default function TransferRequest() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [navigationHospital]);
 
   useEffect(() => {
     if (transferStarted && selectedHospital) {
@@ -320,6 +341,195 @@ export default function TransferRequest() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {hasPrefilledTransfer ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-6">
+            <Card className="p-6 border-blue-100 bg-blue-50/40">
+              <div className="mb-5 flex items-center gap-2 text-blue-700">
+                <CheckCircle className="w-5 h-5" />
+                <h3 className="font-semibold">추천 입력 정보 확인</h3>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <p className="text-xs font-medium text-gray-500">환자</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xl font-bold text-gray-900">{patientData.name}</span>
+                    <Badge variant="outline">{patientData.age}세</Badge>
+                    <Badge variant="outline">{patientData.gender === 'male' ? '남성' : '여성'}</Badge>
+                    <Badge className={getSeverityColor(displaySeverity)}>{displaySeverity}</Badge>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-medium text-gray-500">주요 증상</p>
+                  <p className="mt-2 rounded-lg bg-white p-3 text-sm text-gray-800">
+                    {patientData.symptoms}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-medium text-gray-500">활력 징후</p>
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div className="rounded-lg bg-white p-3">
+                      <p className="text-xs text-gray-500">혈압</p>
+                      <p className="font-semibold text-gray-900">{patientData.bloodPressure}</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-3">
+                      <p className="text-xs text-gray-500">심박수</p>
+                      <p className="font-semibold text-gray-900">{patientData.heartRate} bpm</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-3">
+                      <p className="text-xs text-gray-500">체온</p>
+                      <p className="font-semibold text-gray-900">{patientData.temperature}°C</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-3">
+                      <p className="text-xs text-gray-500">산소포화도</p>
+                      <p className="font-semibold text-gray-900">{patientData.oxygenSaturation}%</p>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate(mode ? `/dashboard/${mode}` : '/')}
+                  className="w-full bg-white"
+                >
+                  증상/위치 다시 설정
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">선택 병원 및 예상 소요시간</h3>
+
+              {selectedHospital ? (
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="mb-2 flex items-center gap-2 text-green-700">
+                          <CheckCircle className="w-5 h-5" />
+                          <span className="font-semibold">병원이 선택되었습니다</span>
+                        </div>
+                        <h4 className="text-2xl font-bold text-gray-900">{selectedHospital.name}</h4>
+                        <p className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+                          <MapPin className="h-4 w-4" />
+                          {selectedHospital.address}
+                        </p>
+                      </div>
+                      <Badge className={
+                        selectedHospital.congestionLevel === 'low'
+                          ? 'bg-green-100 text-green-700'
+                          : selectedHospital.congestionLevel === 'medium'
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : 'bg-red-100 text-red-700'
+                      }>
+                        {selectedHospital.congestionLevel === 'low'
+                          ? '원활'
+                          : selectedHospital.congestionLevel === 'medium'
+                            ? '보통'
+                            : '혼잡'}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 p-5 text-white">
+                    <p className="text-sm text-blue-100">총 소요시간 예상</p>
+                    <div className="mt-2 flex items-end gap-2">
+                      <span className="text-4xl font-bold">{expectedTotalMinutes}</span>
+                      <span className="mb-1 text-lg">분</span>
+                    </div>
+                    <p className="mt-2 text-sm text-blue-50">
+                      이동 {expectedMoveMinutes}분 + 병원 예상 대기 {expectedWaitMinutes}분 기준
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="rounded-lg bg-gray-50 p-4">
+                      <p className="text-xs text-gray-500">이동 시간</p>
+                      <p className="mt-1 font-bold text-gray-900">{expectedMoveMinutes}분</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 p-4">
+                      <p className="text-xs text-gray-500">예상 대기</p>
+                      <p className="mt-1 font-bold text-gray-900">{expectedWaitMinutes}분</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 p-4">
+                      <p className="text-xs text-gray-500">거리</p>
+                      <p className="mt-1 font-bold text-gray-900">{selectedHospital.distance}km</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 p-4">
+                      <p className="text-xs text-gray-500">가용 병상</p>
+                      <p className="mt-1 font-bold text-gray-900">{selectedHospital.beds.general}개</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 mb-2">병상 현황</p>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="rounded-lg bg-gray-50 p-3">
+                        <p className="text-xs text-gray-500">일반</p>
+                        <p className="font-semibold text-gray-900">{selectedHospital.beds.general}</p>
+                      </div>
+                      <div className="rounded-lg bg-gray-50 p-3">
+                        <p className="text-xs text-gray-500">중환자</p>
+                        <p className="font-semibold text-gray-900">{selectedHospital.beds.icu}</p>
+                      </div>
+                      <div className="rounded-lg bg-gray-50 p-3">
+                        <p className="text-xs text-gray-500">수술실</p>
+                        <p className="font-semibold text-gray-900">{selectedHospital.beds.surgery}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 mb-2">진료 가능 과목</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedHospital.departments.slice(0, 6).map((department) => (
+                        <Badge key={department} variant="outline">{department}</Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSelectedHospitalId(null)}
+                    className="w-full"
+                  >
+                    다른 병원 선택
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 py-8">
+                    <AlertCircle className="w-10 h-10 text-gray-400 mb-3" />
+                    <p className="text-gray-600 text-center">이송할 병원을 선택해주세요</p>
+                  </div>
+
+                  <div className="max-h-[520px] space-y-3 overflow-y-auto pr-2">
+                    {[...hospitals]
+                      .sort((a, b) => (a.estimatedTime + a.currentWaitTime) - (b.estimatedTime + b.currentWaitTime))
+                      .map((hospital) => (
+                        <button
+                          key={hospital.id}
+                          type="button"
+                          onClick={() => setSelectedHospitalId(hospital.id)}
+                          className="w-full rounded-lg border border-gray-200 bg-white p-4 text-left transition hover:border-blue-400 hover:bg-blue-50"
+                        >
+                          <p className="font-semibold text-gray-900">{hospital.name}</p>
+                          <p className="mt-1 text-xs text-gray-500">{hospital.address}</p>
+                          <p className="mt-2 text-sm text-blue-700">
+                            총 {hospital.estimatedTime + hospital.currentWaitTime}분 예상
+                          </p>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* 환자 정보 입력 */}
           <div className="space-y-6">
@@ -527,6 +737,7 @@ export default function TransferRequest() {
             )}
           </div>
         </div>
+        )}
 
         {/* 제출 버튼 */}
         <Card className="p-6">

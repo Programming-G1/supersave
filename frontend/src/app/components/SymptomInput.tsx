@@ -21,6 +21,8 @@ interface SymptomInputProps {
   onSubmit: (data: PatientSymptomData) => void | Promise<void>;
   initialData?: PatientSymptomData;
   isSubmitting?: boolean;
+  hideSubmit?: boolean;
+  onChange?: (data: PatientSymptomData) => void;
 }
 
 export interface PatientSymptomData {
@@ -48,7 +50,13 @@ const ktasLevels: Array<{ level: Patient['severity']; name: string; color: strin
   { level: 'KTAS5', name: '비긴급', color: 'bg-blue-500', desc: '2시간 이내 치료' },
 ];
 
-export default function SymptomInput({ onSubmit, initialData, isSubmitting = false }: SymptomInputProps) {
+export default function SymptomInput({
+  onSubmit,
+  initialData,
+  isSubmitting = false,
+  hideSubmit = false,
+  onChange,
+}: SymptomInputProps) {
   const { mode } = useMode();
   const [showVitals, setShowVitals] = useState(false);
   const [aiSuggesting, setAiSuggesting] = useState(false);
@@ -67,10 +75,15 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
     }
   );
 
+  const updateFormData = (nextData: PatientSymptomData) => {
+    setFormData(nextData);
+    onChange?.(nextData);
+  };
+
   const addSymptom = (symptom: string) => {
     const current = formData.symptoms;
     const newSymptoms = current ? `${current}, ${symptom}` : symptom;
-    setFormData({ ...formData, symptoms: newSymptoms });
+    updateFormData({ ...formData, symptoms: newSymptoms });
   };
 
   const suggestSeverity = () => {
@@ -102,13 +115,16 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
         suggestedLevel = suggestedLevel === 'KTAS1' ? 'KTAS1' : 'KTAS3';
       }
 
-      setFormData({ ...formData, severity: suggestedLevel });
+      updateFormData({ ...formData, severity: suggestedLevel });
       setAiSuggesting(false);
     }, 1000);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (hideSubmit) {
+      return;
+    }
     await onSubmit(formData);
   };
 
@@ -123,7 +139,9 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
               {mode === 'patient' ? '내 증상 입력' : '환자 증상 입력'}
             </h3>
             <p className="text-sm text-gray-500 mt-1">
-              증상을 입력하면 AI가 최적의 병원을 추천합니다
+              {hideSubmit
+                ? '환자 정보를 입력한 뒤 출발 위치를 설정하고 추천을 실행합니다'
+                : '증상을 입력하면 AI가 최적의 병원을 추천합니다'}
             </p>
           </div>
         </div>
@@ -135,7 +153,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
             <Input
               id="name"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(e) => updateFormData({ ...formData, name: e.target.value })}
               required
               placeholder={mode === 'patient' ? '홍길동' : '환자 이름'}
             />
@@ -147,7 +165,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
               id="age"
               type="number"
               value={formData.age}
-              onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) || 0 })}
+              onChange={(e) => updateFormData({ ...formData, age: parseInt(e.target.value) || 0 })}
               required
               min="0"
               max="120"
@@ -159,7 +177,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
             <select
               id="gender"
               value={formData.gender}
-              onChange={(e) => setFormData({ ...formData, gender: e.target.value as 'male' | 'female' })}
+              onChange={(e) => updateFormData({ ...formData, gender: e.target.value as 'male' | 'female' })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
               required
             >
@@ -175,7 +193,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
           <textarea
             id="symptoms"
             value={formData.symptoms}
-            onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
+            onChange={(e) => updateFormData({ ...formData, symptoms: e.target.value })}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 min-h-[100px]"
             placeholder="예: 급성 흉통, 호흡곤란, 식은땀"
             required
@@ -218,7 +236,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
               <button
                 key={ktas.level}
                 type="button"
-                onClick={() => setFormData({ ...formData, severity: ktas.level })}
+                onClick={() => updateFormData({ ...formData, severity: ktas.level })}
                 className={`p-3 rounded-lg border-2 transition-all ${
                   formData.severity === ktas.level
                     ? `${ktas.color} text-white border-transparent ring-2 ring-offset-2 ring-${ktas.color.replace('bg-', '')}`
@@ -261,7 +279,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
                 <Input
                   id="bloodPressure"
                   value={formData.bloodPressure}
-                  onChange={(e) => setFormData({ ...formData, bloodPressure: e.target.value })}
+                  onChange={(e) => updateFormData({ ...formData, bloodPressure: e.target.value })}
                   placeholder="120/80"
                   className="mt-1"
                 />
@@ -276,7 +294,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
                   id="heartRate"
                   type="number"
                   value={formData.heartRate}
-                  onChange={(e) => setFormData({ ...formData, heartRate: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => updateFormData({ ...formData, heartRate: parseInt(e.target.value) || 0 })}
                   placeholder="80"
                   className="mt-1"
                 />
@@ -292,7 +310,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
                   type="number"
                   step="0.1"
                   value={formData.temperature}
-                  onChange={(e) => setFormData({ ...formData, temperature: parseFloat(e.target.value) || 0 })}
+                  onChange={(e) => updateFormData({ ...formData, temperature: parseFloat(e.target.value) || 0 })}
                   placeholder="36.5"
                   className="mt-1"
                 />
@@ -307,7 +325,7 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
                   id="oxygenSaturation"
                   type="number"
                   value={formData.oxygenSaturation}
-                  onChange={(e) => setFormData({ ...formData, oxygenSaturation: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => updateFormData({ ...formData, oxygenSaturation: parseInt(e.target.value) || 0 })}
                   placeholder="98"
                   className="mt-1"
                 />
@@ -316,16 +334,17 @@ export default function SymptomInput({ onSubmit, initialData, isSubmitting = fal
           )}
         </div>
 
-        {/* 제출 버튼 */}
-        <Button
-          type="submit"
-          className="w-full bg-blue-600 hover:bg-blue-700"
-          size="lg"
-          disabled={isSubmitting}
-        >
-          <Sparkles className="w-5 h-5 mr-2" />
-          {isSubmitting ? '추천 계산 중...' : 'AI 병원 추천 받기'}
-        </Button>
+        {!hideSubmit && (
+          <Button
+            type="submit"
+            className="w-full bg-blue-600 hover:bg-blue-700"
+            size="lg"
+            disabled={isSubmitting}
+          >
+            <Sparkles className="w-5 h-5 mr-2" />
+            {isSubmitting ? '추천 계산 중...' : 'AI 병원 추천 받기'}
+          </Button>
+        )}
       </form>
     </Card>
   );

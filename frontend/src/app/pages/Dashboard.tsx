@@ -32,7 +32,7 @@ import { useNavigate, useLocation, useParams } from 'react-router';
 import { useMode } from '../contexts/ModeContext';
 import { toast } from 'sonner';
 
-type DashboardTab = 'map' | 'recommendations' | 'analytics';
+type DashboardTab = 'map' | 'analytics';
 const DEFAULT_LOCATION = {
   name: '서울시청',
   coordinates: { lat: 37.5665, lng: 126.9780 },
@@ -121,7 +121,6 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDepartment, setFilterDepartment] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'distance' | 'waitTime' | 'beds'>('distance');
-  const [showSymptomInput, setShowSymptomInput] = useState(false);
   const [currentPatient, setCurrentPatient] = useState(mockPatient);
   const [patientForm, setPatientForm] = useState({
     name: mockPatient.name,
@@ -129,9 +128,21 @@ export default function Dashboard() {
     gender: mockPatient.gender,
     symptoms: mockPatient.symptoms,
   });
+  const [paramedicForm, setParamedicForm] = useState<PatientSymptomData>({
+    name: mockPatient.name,
+    age: mockPatient.age,
+    gender: mockPatient.gender,
+    symptoms: mockPatient.symptoms,
+    severity: mockPatient.severity,
+    bloodPressure: mockPatient.vitalSigns.bloodPressure,
+    heartRate: mockPatient.vitalSigns.heartRate,
+    temperature: mockPatient.vitalSigns.temperature,
+    oxygenSaturation: mockPatient.vitalSigns.oxygenSaturation,
+  });
   const [activeTab, setActiveTab] = useState<DashboardTab>('map');
   const [apiRecommendations, setApiRecommendations] = useState<ApiRecommendationResult[] | null>(null);
   const [isRecommendationLoading, setIsRecommendationLoading] = useState(false);
+  const [hasRecommendationRequested, setHasRecommendationRequested] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [sourceHospitals, setSourceHospitals] = useState<Hospital[]>(mockHospitals);
   const [hospitalLoadError, setHospitalLoadError] = useState<string | null>(null);
@@ -145,11 +156,27 @@ export default function Dashboard() {
   const [isLocationSearchLoading, setIsLocationSearchLoading] = useState(false);
   const [locationSearchError, setLocationSearchError] = useState<string | null>(null);
 
+  const resetRecommendationResult = () => {
+    setSelectedHospitalId(null);
+    setApiRecommendations(null);
+    setHasRecommendationRequested(false);
+    setRecommendationError(null);
+  };
+
+  const updatePatientForm = (nextForm: typeof patientForm) => {
+    setPatientForm(nextForm);
+    resetRecommendationResult();
+  };
+
+  const updateParamedicForm = (nextForm: PatientSymptomData) => {
+    setParamedicForm(nextForm);
+    resetRecommendationResult();
+  };
+
   const applyLocation = (label: string, coordinates: { lat: number; lng: number }, showToast = true) => {
     setUserLocation(coordinates);
     setLocationLabel(label);
-    setSelectedHospitalId(null);
-    setApiRecommendations(null);
+    resetRecommendationResult();
     if (showToast) {
       toast.success(`${label} 기준으로 위치를 설정했습니다`, {
         description: '거리, 이동시간, 추천 결과가 새 위치 기준으로 다시 계산됩니다.',
@@ -343,6 +370,7 @@ export default function Dashboard() {
 
     setCurrentPatient(nextPatient);
     setIsRecommendationLoading(true);
+    setHasRecommendationRequested(true);
     setRecommendationError(null);
 
     try {
@@ -354,7 +382,6 @@ export default function Dashboard() {
       });
 
       setApiRecommendations(results);
-      setActiveTab('recommendations');
       const topRecommendation = results[0];
       if (topRecommendation) {
         setSelectedHospitalId(`h${topRecommendation.hospitalId}`);
@@ -367,7 +394,6 @@ export default function Dashboard() {
     } catch {
       setApiRecommendations(null);
       setRecommendationError('추천 API 호출에 실패해 로컬 mock 추천을 표시합니다.');
-      setActiveTab('recommendations');
       toast.error('추천 API 호출에 실패했습니다', {
         description: '백엔드 서버 상태를 확인해주세요. 임시로 로컬 추천 결과를 표시합니다.',
       });
@@ -375,36 +401,46 @@ export default function Dashboard() {
       setIsRecommendationLoading(false);
     }
 
-    setShowSymptomInput(false);
   };
 
-  const handlePatientRecommendationSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleRecommendationSubmit = async () => {
+    const symptomData: PatientSymptomData =
+      mode === 'patient'
+        ? {
+            name: patientForm.name.trim() || '환자',
+            age: patientForm.age,
+            gender: patientForm.gender,
+            symptoms: patientForm.symptoms.trim(),
+            severity: inferSeverityFromSymptoms(patientForm.symptoms),
+            bloodPressure: currentPatient.vitalSigns.bloodPressure,
+            heartRate: currentPatient.vitalSigns.heartRate,
+            temperature: currentPatient.vitalSigns.temperature,
+            oxygenSaturation: currentPatient.vitalSigns.oxygenSaturation,
+          }
+        : {
+            ...paramedicForm,
+            name: paramedicForm.name.trim() || '환자',
+            symptoms: paramedicForm.symptoms.trim(),
+          };
 
-    if (!patientForm.symptoms.trim()) {
+    if (!symptomData.symptoms.trim()) {
       toast.warning('증상을 입력해주세요', {
         description: 'AI가 중증도와 병원 추천을 판단하려면 현재 증상 정보가 필요합니다.',
       });
       return;
     }
 
-    const severity = inferSeverityFromSymptoms(patientForm.symptoms);
+    await handleSymptomSubmit(symptomData);
 
-    await handleSymptomSubmit({
-      name: patientForm.name.trim() || '환자',
-      age: patientForm.age,
-      gender: patientForm.gender,
-      symptoms: patientForm.symptoms.trim(),
-      severity,
-      bloodPressure: currentPatient.vitalSigns.bloodPressure,
-      heartRate: currentPatient.vitalSigns.heartRate,
-      temperature: currentPatient.vitalSigns.temperature,
-      oxygenSaturation: currentPatient.vitalSigns.oxygenSaturation,
-    });
-
-    toast.info(`AI 판단 중증도: ${severity}`, {
-      description: '환자모드에서는 중증도를 직접 선택하지 않고 증상 기반으로 자동 판단합니다.',
-    });
+    if (mode === 'patient') {
+      toast.info(`AI 판단 중증도: ${symptomData.severity}`, {
+        description: '환자모드에서는 중증도를 직접 선택하지 않고 증상 기반으로 자동 판단합니다.',
+      });
+    } else {
+      toast.info(`입력 중증도: ${symptomData.severity}`, {
+        description: '구급대원모드는 입력한 KTAS와 출발 위치를 함께 반영합니다.',
+      });
+    }
   };
 
   // 병원 추천 점수 계산
@@ -543,14 +579,24 @@ export default function Dashboard() {
   const crowdedHospital = hospitals.find((hospital) => hospital.congestionLevel === 'high');
 
   const handleSelectHospital = (hospitalId: string) => {
+    const selectedHospital = hospitals.find((hospital) => hospital.id === hospitalId)
+      ?? recommendations.find((recommendation) => recommendation.hospital.id === hospitalId)?.hospital;
+
     navigate('/transfer', {
       state: {
         selectedHospitalId: hospitalId,
+        selectedHospital,
         patientData: currentPatient,
         userLocation,
       },
     });
   };
+
+  const activeSymptoms = mode === 'patient' ? patientForm.symptoms : paramedicForm.symptoms;
+  const recommendationSeverityLabel =
+    mode === 'patient'
+      ? `AI 판단 예상: ${activeSymptoms.trim() ? inferSeverityFromSymptoms(activeSymptoms) : '-'}`
+      : `입력 중증도: ${paramedicForm.severity}`;
 
   if (!isHydrated) return null;
 
@@ -559,7 +605,7 @@ export default function Dashboard() {
       {/* 증상 입력 섹션 */}
       {mode === 'patient' && (
         <Card className="p-5 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200">
-          <form onSubmit={handlePatientRecommendationSubmit} className="space-y-4">
+          <div className="space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex items-start gap-3">
                 <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg">
@@ -588,7 +634,7 @@ export default function Dashboard() {
                 <Input
                   id="patient-name"
                   value={patientForm.name}
-                  onChange={(e) => setPatientForm({ ...patientForm, name: e.target.value })}
+                  onChange={(e) => updatePatientForm({ ...patientForm, name: e.target.value })}
                   placeholder="예: 김환자"
                   required
                 />
@@ -604,7 +650,7 @@ export default function Dashboard() {
                   min="0"
                   max="120"
                   value={patientForm.age}
-                  onChange={(e) => setPatientForm({ ...patientForm, age: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => updatePatientForm({ ...patientForm, age: parseInt(e.target.value) || 0 })}
                   required
                 />
               </div>
@@ -616,7 +662,7 @@ export default function Dashboard() {
                 <select
                   id="patient-gender"
                   value={patientForm.gender}
-                  onChange={(e) => setPatientForm({ ...patientForm, gender: e.target.value as 'male' | 'female' })}
+                  onChange={(e) => updatePatientForm({ ...patientForm, gender: e.target.value as 'male' | 'female' })}
                   className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                   required
                 >
@@ -633,7 +679,7 @@ export default function Dashboard() {
               <textarea
                 id="patient-symptoms"
                 value={patientForm.symptoms}
-                onChange={(e) => setPatientForm({ ...patientForm, symptoms: e.target.value })}
+                onChange={(e) => updatePatientForm({ ...patientForm, symptoms: e.target.value })}
                 className="min-h-[96px] w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 placeholder="예: 흉부 통증과 호흡곤란이 있어요"
                 required
@@ -643,61 +689,18 @@ export default function Dashboard() {
               </p>
             </div>
 
-            <Button
-              type="submit"
-              disabled={isRecommendationLoading || !patientForm.symptoms.trim()}
-              className="w-full bg-blue-600 hover:bg-blue-700"
-            >
-              <Sparkles className="w-4 h-4 mr-2" />
-              {isRecommendationLoading ? 'AI 추천 계산 중...' : 'AI 병원 추천 받기'}
-            </Button>
-          </form>
+          </div>
         </Card>
       )}
 
       {mode === 'paramedic' && (
-        <>
-          {!showSymptomInput ? (
-            <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg">
-                    <Sparkles className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">AI 맞춤 병원 추천</h3>
-                    <p className="text-sm text-gray-600">
-                      환자 증상을 입력하면 AI가 최적의 병원을 추천합니다
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  onClick={() => setShowSymptomInput(true)}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  증상 입력
-                </Button>
-              </div>
-            </Card>
-          ) : (
-            <SymptomInput
-              onSubmit={handleSymptomSubmit}
-              isSubmitting={isRecommendationLoading}
-              initialData={{
-                name: currentPatient.name,
-                age: currentPatient.age,
-                gender: currentPatient.gender,
-                symptoms: currentPatient.symptoms,
-                severity: currentPatient.severity,
-                bloodPressure: currentPatient.vitalSigns.bloodPressure,
-                heartRate: currentPatient.vitalSigns.heartRate,
-                temperature: currentPatient.vitalSigns.temperature,
-                oxygenSaturation: currentPatient.vitalSigns.oxygenSaturation,
-              }}
-            />
-          )}
-        </>
+        <SymptomInput
+          onSubmit={handleSymptomSubmit}
+          isSubmitting={isRecommendationLoading}
+          initialData={paramedicForm}
+          hideSubmit
+          onChange={updateParamedicForm}
+        />
       )}
 
       {/* 출발 위치 설정 */}
@@ -777,6 +780,132 @@ export default function Dashboard() {
           )}
         </div>
       </Card>
+
+      {(mode === 'patient' || mode === 'paramedic') && (
+        <Card className="p-4 border-blue-200 bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="font-semibold">증상과 출발 위치 기준으로 추천받기</h3>
+              <p className="mt-1 text-sm text-blue-50">
+                현재 위치 기준: {locationLabel} / 증상: {activeSymptoms || '입력 필요'}
+              </p>
+              <p className="mt-1 text-xs text-blue-100">{recommendationSeverityLabel}</p>
+            </div>
+            <Button
+              type="button"
+              onClick={handleRecommendationSubmit}
+              disabled={isRecommendationLoading || !activeSymptoms.trim()}
+              className="bg-white text-blue-700 hover:bg-blue-50"
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              {isRecommendationLoading ? 'AI 추천 계산 중...' : 'AI 병원 추천 받기'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {hasRecommendationRequested && (
+        <Card className="p-5 border-blue-100 bg-white">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-600">
+                <Award className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">추천 결과 TOP 3</h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  {currentPatient.name} ({currentPatient.age}세, {currentPatient.gender === 'male' ? '남' : '여'}) / {currentPatient.symptoms}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge className="bg-red-600">AI 판단 중증도: {currentPatient.severity}</Badge>
+                  {apiRecommendations && (
+                    <Badge variant="outline" className="border-blue-200 text-blue-700">
+                      백엔드 추천 API 연동
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setActiveTab('map')}
+              className="text-blue-600"
+            >
+              지도에서 확인
+            </Button>
+          </div>
+
+          {recommendationError && (
+            <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+              {recommendationError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {recommendations.slice(0, 3).map((rec, index) => (
+              <Card key={rec.hospital.id} className="relative p-4">
+                <div className="absolute -top-2 -right-2 flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 shadow-lg">
+                  <span className="text-xs font-bold text-white">{index + 1}</span>
+                </div>
+
+                <h4 className="mb-2 pr-7 font-semibold text-gray-900">{rec.hospital.name}</h4>
+
+                <div className="mb-3">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">적합도 점수</span>
+                    <span className="text-sm font-bold text-blue-600">{rec.score}/100</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-gray-200">
+                    <div
+                      className="h-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all"
+                      style={{ width: `${rec.score}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mb-3 grid grid-cols-3 gap-2 rounded-lg bg-blue-50 p-3 text-center text-xs">
+                  <div>
+                    <p className="text-gray-500">이동</p>
+                    <p className="font-semibold text-gray-900">{rec.hospital.estimatedTime}분</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">대기</p>
+                    <p className="font-semibold text-gray-900">{rec.hospital.currentWaitTime}분</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">총 소요</p>
+                    <p className="font-semibold text-gray-900">
+                      {rec.hospital.estimatedTime + rec.hospital.currentWaitTime}분
+                    </p>
+                  </div>
+                </div>
+
+                <p className="mb-3 text-xs text-gray-500">
+                  거리 {rec.hospital.distance}km / 가용 병상 {rec.hospital.beds.general}개
+                </p>
+
+                <details className="mb-3">
+                  <summary className="cursor-pointer text-xs text-blue-600 hover:underline">
+                    추천 근거 보기
+                  </summary>
+                  <div className="mt-2 rounded-lg bg-gray-50 p-3">
+                    <p className="whitespace-pre-line text-xs text-gray-700">{rec.aiAnalysis}</p>
+                  </div>
+                </details>
+
+                <Button
+                  onClick={() => handleSelectHospital(rec.hospital.id)}
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  size="sm"
+                >
+                  이 병원 선택
+                </Button>
+              </Card>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* 상단 통계 카드 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -863,9 +992,8 @@ export default function Dashboard() {
 
       {/* 메인 컨텐츠 탭 */}
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as DashboardTab)} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="map">지도 뷰</TabsTrigger>
-          <TabsTrigger value="recommendations">AI 추천</TabsTrigger>
           <TabsTrigger value="analytics">대기시간 분석</TabsTrigger>
         </TabsList>
 
@@ -936,146 +1064,6 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-          </div>
-        </TabsContent>
-
-        {/* AI 추천 탭 */}
-        <TabsContent value="recommendations" className="space-y-4">
-          <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50">
-            <div className="flex items-start gap-3">
-              <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex-shrink-0">
-                <Award className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-900">스마트 이송 추천</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  환자 정보: {currentPatient.name} ({currentPatient.age}세, {currentPatient.gender === 'male' ? '남' : '여'})
-                </p>
-                <p className="text-sm text-gray-600">증상: {currentPatient.symptoms}</p>
-                <Badge className="mt-2 bg-red-600">중증도: {currentPatient.severity}</Badge>
-                {apiRecommendations && (
-                  <Badge variant="outline" className="mt-2 ml-2 border-blue-200 text-blue-700">
-                    백엔드 추천 API 연동
-                  </Badge>
-                )}
-                {mode === 'paramedic' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setShowSymptomInput(true)}
-                    className="mt-2 text-blue-600"
-                  >
-                    증상 수정
-                  </Button>
-                )}
-                {mode === 'patient' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    className="mt-2 text-blue-600"
-                  >
-                    환자 정보 수정
-                  </Button>
-                )}
-              </div>
-            </div>
-          </Card>
-
-          {recommendationError && (
-            <Card className="border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
-              {recommendationError}
-            </Card>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {recommendations.slice(0, 6).map((rec, index) => (
-              <Card key={rec.hospital.id} className="p-4 relative">
-                {/* 순위 배지 */}
-                {index < 3 && (
-                  <div className="absolute -top-2 -right-2 flex items-center justify-center w-8 h-8 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full shadow-lg">
-                    <span className="text-xs font-bold text-white">{index + 1}</span>
-                  </div>
-                )}
-
-                <h4 className="font-semibold text-gray-900 mb-2">{rec.hospital.name}</h4>
-
-                {/* 점수 바 */}
-                <div className="mb-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-500">적합도 점수</span>
-                    <span className="text-sm font-bold text-blue-600">{rec.score}/100</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-gradient-to-r from-blue-500 to-purple-600 h-2 rounded-full transition-all"
-                      style={{ width: `${rec.score}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* 점수 세부 항목 */}
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div className="text-xs">
-                    <p className="text-gray-500">거리</p>
-                    <p className="font-semibold text-gray-900">{Math.round(rec.reasons.distance)}</p>
-                  </div>
-                  <div className="text-xs">
-                    <p className="text-gray-500">가용성</p>
-                    <p className="font-semibold text-gray-900">{Math.round(rec.reasons.availability)}</p>
-                  </div>
-                  <div className="text-xs">
-                    <p className="text-gray-500">전문성</p>
-                    <p className="font-semibold text-gray-900">{Math.round(rec.reasons.specialization)}</p>
-                  </div>
-                  <div className="text-xs">
-                    <p className="text-gray-500">총 소요</p>
-                    <p className="font-semibold text-gray-900">{Math.round(rec.reasons.waitTime)}</p>
-                  </div>
-                </div>
-
-                {apiRecommendations && (
-                  <div className="grid grid-cols-4 gap-2 mb-3 rounded-lg bg-blue-50 p-3 text-center text-xs">
-                    <div>
-                      <p className="text-gray-500">거리</p>
-                      <p className="font-semibold text-gray-900">{rec.hospital.distance}km</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">이동</p>
-                      <p className="font-semibold text-gray-900">{rec.hospital.estimatedTime}분</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">대기</p>
-                      <p className="font-semibold text-gray-900">{rec.hospital.currentWaitTime}분</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">총 소요</p>
-                      <p className="font-semibold text-gray-900">
-                        {rec.hospital.estimatedTime + rec.hospital.currentWaitTime}분
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* AI 분석 보기 버튼 */}
-                <details className="mb-3">
-                  <summary className="text-xs text-blue-600 cursor-pointer hover:underline">
-                    AI 분석 보기
-                  </summary>
-                  <div className="mt-2 p-3 bg-gray-50 rounded-lg">
-                    <p className="text-xs text-gray-700 whitespace-pre-line">{rec.aiAnalysis}</p>
-                  </div>
-                </details>
-
-                <Button
-                  onClick={() => handleSelectHospital(rec.hospital.id)}
-                  className="w-full bg-blue-600 hover:bg-blue-700"
-                  size="sm"
-                >
-                  이 병원 선택
-                </Button>
-              </Card>
-            ))}
           </div>
         </TabsContent>
 
