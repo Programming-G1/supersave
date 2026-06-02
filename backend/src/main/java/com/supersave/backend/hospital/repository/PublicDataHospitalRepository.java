@@ -47,12 +47,14 @@ public class PublicDataHospitalRepository implements HospitalRepository {
     private final HttpClient httpClient;
     private final MockHospitalRepository fallbackRepository = new MockHospitalRepository();
     private final Map<Long, Integer> incomingOverrides = new ConcurrentHashMap<>();
+    private final com.supersave.backend.hospital.service.HospitalCacheService hospitalCacheService;
 
     private volatile HospitalCache cache = HospitalCache.empty();
     private volatile Map<String, PublicHospitalItem> hospitalInfoCache = Map.of();
 
-    public PublicDataHospitalRepository(PublicDataProperties properties) {
+    public PublicDataHospitalRepository(PublicDataProperties properties, com.supersave.backend.hospital.service.HospitalCacheService hospitalCacheService) {
         this.properties = properties;
+        this.hospitalCacheService = hospitalCacheService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
@@ -70,7 +72,9 @@ public class PublicDataHospitalRepository implements HospitalRepository {
     )
     public void refreshPublicDataCache() {
         if (properties.getServiceKey() == null || properties.getServiceKey().isBlank()) {
-            cache = new HospitalCache(fallbackHospitals("PUBLIC_DATA_SERVICE_KEY is empty"), Instant.now());
+            Map<Long, Hospital> fallbackHospitals = fallbackHospitals("PUBLIC_DATA_SERVICE_KEY is empty");
+            cache = new HospitalCache(fallbackHospitals, Instant.now());
+            hospitalCacheService.cacheAllHospitals(fallbackHospitals);
             return;
         }
 
@@ -83,18 +87,21 @@ public class PublicDataHospitalRepository implements HospitalRepository {
 
             Map<Long, Hospital> loadedHospitals = combineHospitals(hospitalInfoByHpid, loadRealtimeBeds());
             if (loadedHospitals.isEmpty()) {
-                cache = new HospitalCache(
-                        fallbackHospitals("public data API returned no hospitals"),
-                        Instant.now()
-                );
+                Map<Long, Hospital> fallbackHospitals = fallbackHospitals("public data API returned no hospitals");
+                cache = new HospitalCache(fallbackHospitals, Instant.now());
+                hospitalCacheService.cacheAllHospitals(fallbackHospitals);
                 return;
             }
             cache = new HospitalCache(loadedHospitals, Instant.now());
-            log.info("Refreshed public realtime emergency bed cache: {} hospitals", loadedHospitals.size());
+            // Redis에 캐싱
+            hospitalCacheService.cacheAllHospitals(loadedHospitals);
+            log.info("Refreshed public realtime emergency bed cache: {} hospitals (Redis cached)", loadedHospitals.size());
         } catch (RuntimeException exception) {
             log.warn("Failed to refresh public emergency hospital data.", exception);
             if (cache.hospitals().isEmpty()) {
-                cache = new HospitalCache(fallbackHospitals(exception.getMessage()), Instant.now());
+                Map<Long, Hospital> fallbackHospitals = fallbackHospitals(exception.getMessage());
+                cache = new HospitalCache(fallbackHospitals, Instant.now());
+                hospitalCacheService.cacheAllHospitals(fallbackHospitals);
             }
         }
     }
