@@ -2,15 +2,49 @@ import { Hospital } from '../types';
 import { Card } from './ui/card';
 import { useState } from 'react';
 import { Map as KakaoMap, MapMarker, CustomOverlayMap, Polyline } from 'react-kakao-maps-sdk';
+import type { RoadSegment } from '../../types';
 
 interface MapProps {
   hospitals: Hospital[];
   selectedHospitalId?: string;
   onHospitalClick?: (hospitalId: string) => void;
   userLocation?: { lat: number; lng: number };
+  routePath?: { lat: number; lng: number }[];
+  routeRoads?: RoadSegment[];
 }
 
-export default function Map({ hospitals, selectedHospitalId, onHospitalClick, userLocation }: MapProps) {
+/** 교통 상태(trafficState)에 따른 폴리라인 색상 */
+function getTrafficColor(trafficState: number): string {
+  switch (trafficState) {
+    case 1: return '#22c55e'; // 원활 - green
+    case 2: return '#f59e0b'; // 서행 - amber
+    case 3: return '#f97316'; // 지체 - orange
+    case 4: return '#ef4444'; // 정체 - red
+    default: return '#3b82f6'; // 정보없음 - blue
+  }
+}
+
+/** 교통 상태 라벨 */
+function getTrafficLabel(trafficState: number): string {
+  switch (trafficState) {
+    case 1: return '원활';
+    case 2: return '서행';
+    case 3: return '지체';
+    case 4: return '정체';
+    default: return '정보없음';
+  }
+}
+
+/** vertexes [lng, lat, lng, lat, ...] -> [{lat, lng}, ...] 변환 */
+function vertexesToPath(vertexes: number[]): { lat: number; lng: number }[] {
+  const path: { lat: number; lng: number }[] = [];
+  for (let i = 0; i + 1 < vertexes.length; i += 2) {
+    path.push({ lat: vertexes[i + 1], lng: vertexes[i] });
+  }
+  return path;
+}
+
+export default function Map({ hospitals, selectedHospitalId, onHospitalClick, userLocation, routePath, routeRoads }: MapProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   // 서울 중심 좌표
@@ -32,6 +66,9 @@ export default function Map({ hospitals, selectedHospitalId, onHospitalClick, us
     }
   };
 
+  // 교통 상태별 구간이 있으면 그것을 사용, 없으면 기존 routePath 사용
+  const hasRoads = routeRoads && routeRoads.length > 0;
+
   return (
     <Card className="relative w-full h-[600px] overflow-hidden">
       {/* 지도 제목 */}
@@ -42,19 +79,23 @@ export default function Map({ hospitals, selectedHospitalId, onHospitalClick, us
 
       {/* 범례 */}
       <div className="absolute top-4 right-4 bg-white rounded-lg shadow-md px-4 py-3 z-10">
-        <p className="text-xs font-semibold text-gray-700 mb-2">혼잡도</p>
+        <p className="text-xs font-semibold text-gray-700 mb-2">교통 상황</p>
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-green-500 rounded-full"></div>
             <span className="text-xs text-gray-600">원활</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-            <span className="text-xs text-gray-600">보통</span>
+            <div className="w-3 h-3 bg-amber-500 rounded-full"></div>
+            <span className="text-xs text-gray-600">서행</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+            <span className="text-xs text-gray-600">지체</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-            <span className="text-xs text-gray-600">혼잡</span>
+            <span className="text-xs text-gray-600">정체</span>
           </div>
         </div>
       </div>
@@ -139,18 +180,41 @@ export default function Map({ hospitals, selectedHospitalId, onHospitalClick, us
           );
         })}
 
-        {/* 선택된 병원과 사용자 간의 경로 선 (가상 경로) */}
+        {/* 선택된 병원과 사용자 간의 경로 선 (교통 상태별 색상) */}
         {userLocation && selectedHospitalId && hospitals.find(h => h.id === selectedHospitalId)?.coordinates && (
-          <Polyline
-            path={[
-              userLocation,
-              hospitals.find(h => h.id === selectedHospitalId)!.coordinates as {lat: number, lng: number}
-            ]}
-            strokeWeight={5} // 선의 두께
-            strokeColor={"#3b82f6"} // 선의 색깔 (blue-500)
-            strokeOpacity={0.8} // 선의 불투명도
-            strokeStyle={"solid"} // 선의 스타일
-          />
+          hasRoads ? (
+            // 교통 상태별로 색상이 다른 구간별 Polyline
+            <>
+              {routeRoads!.map((road, idx) => {
+                const segmentPath = vertexesToPath(road.vertexes);
+                if (segmentPath.length < 2) return null;
+                return (
+                  <Polyline
+                    key={`road-${idx}`}
+                    path={segmentPath}
+                    strokeWeight={6}
+                    strokeColor={getTrafficColor(road.trafficState)}
+                    strokeOpacity={0.9}
+                    strokeStyle="solid"
+                  />
+                );
+              })}
+            </>
+          ) : (
+            // 교통 정보가 없으면 기존 단색 Polyline
+            <Polyline
+              path={routePath && routePath.length > 1
+                ? routePath
+                : [
+                  userLocation,
+                  hospitals.find(h => h.id === selectedHospitalId)!.coordinates as {lat: number, lng: number}
+                ]}
+              strokeWeight={5}
+              strokeColor="#3b82f6"
+              strokeOpacity={0.8}
+              strokeStyle="solid"
+            />
+          )
         )}
       </KakaoMap>
     </Card>

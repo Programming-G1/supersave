@@ -133,3 +133,26 @@ export interface AlertItem {
   region: string;
   createdAt: string;
 }
+
+export interface NavigationRoutePoint {
+  lat: number;
+  lng: number;
+}
+
+/** 도로 구간별 교통 정보 (카카오 내비 API 원본) */
+export interface RoadSegment {
+  /** [lng, lat, lng, lat, ...] 형식 좌표 배열 */
+  vertexes: number[];
+  /** 해당 구간 교통 속도 (km/h) */
+  trafficSpeed: number;
+  /** 교통 상태: 0=정보없음, 1=원활, 2=서행, 3=지체, 4=정체 */
+  trafficState: number;
+}
+
+export interface NavigationRoute {
+  distanceKm: number;
+  durationMinutes: number;
+  path: NavigationRoutePoint[];
+  roads: RoadSegment[];
+}
+

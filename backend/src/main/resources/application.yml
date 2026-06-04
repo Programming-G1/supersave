@@ -42,3 +42,6 @@ supersave:
     local:
       rest-api-key: ${KAKAO_REST_API_KEY:}
       base-url: ${KAKAO_LOCAL_BASE_URL:https://dapi.kakao.com}
+    navigation:
+      rest-api-key: ${KAKAO_NAVIGATION_REST_API_KEY:${KAKAO_REST_API_KEY:}}
+      base-url: ${KAKAO_NAVIGATION_BASE_URL:https://apis-navi.kakaomobility.com}

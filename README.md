@@ -149,7 +149,7 @@ npm run dev
 - 추천 점수는 거리, 병상, 중증도 수용 가능 여부, 예상 대기시간 기반의 단순 공식 사용
 - 출발 등록은 실제 예약 확정이 아니라 도착 예정 환자 등록 시뮬레이션
 
-## Kakao Map, Navigation API 연동
+## Kakao MAP, NAVIGATION API 연동
 
 - **지도 라이브러리**: `react-kakao-maps-sdk` 라이브러리를 활용하여 컴포넌트를 구성하였습니다.
 - **주요 구현 기능**:
