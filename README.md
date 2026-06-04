@@ -12,7 +12,7 @@
   - 공공데이터 응급실 API 연동
   - Kakao Map 시각화 연동
   - Gemini API 기반 추천 이유 설명 및 질의응답 고도화
-  - MySQL/JPA 실제 영속화
+  - PostgreSQL/Supabase 기반 실제 영속화
 
 ## 폴더 구조
 
@@ -78,11 +78,40 @@ cd backend
 mvn spring-boot:run
 ```
 
-- 기본 프로필은 `mock`
-- 실제 MySQL 연동 시 [`backend/src/main/resources/application-mysql.example.yml`](backend/src/main/resources/application-mysql.example.yml)를 참고해 설정
+- 기본값은 `application.yml`의 `api` 프로필이며, `backend/.env`에 `spring.profiles.active=postgres`를 넣으면 PostgreSQL/Supabase 모드로 실행됨
+- DB를 연결하지 않은 상태에서는 출발 등록(`Departure`) 데이터가 인메모리로 유지됨
 - 이 상태에서는 API만 열리고 `/` 화면은 정적 파일을 동기화한 뒤에만 제공
 
-### 2-1. Gemini API 연동
+### 2-1. PostgreSQL / Supabase 영속화 모드
+
+이송 등록과 상태 변경 데이터를 DB에 남기려면 `postgres` 프로필로 실행합니다. 가장 쉬운 방법은 `backend/.env.example`을 복사해 `backend/.env`를 만든 뒤 값을 채우는 것입니다.
+
+Supabase를 사용할 때는 Spring Boot 같은 지속 실행 서버 특성상 보통 `Session pooler`를 먼저 사용하면 편합니다. 로컬 IPv4 환경에서 가장 무난하고, `Transaction pooler`는 이 프로젝트 기본값으로 권장하지 않습니다.
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+- `backend/.env` 예시:
+
+```env
+spring.profiles.active=postgres
+DB_URL=jdbc:postgresql://aws-REGION.pooler.supabase.com:5432/postgres?sslmode=require
+DB_USERNAME=postgres.YOUR_PROJECT_REF
+DB_PASSWORD=YOUR_SUPABASE_DB_PASSWORD
+```
+
+```bash
+cd backend
+mvn spring-boot:run
+```
+
+- `backend/src/main/resources/application-postgres.yml`에 PostgreSQL 프로필이 포함되어 있음
+- Supabase Connect 화면에서 `Session pooler`를 선택하면 host/user 값이 `pooler.supabase.com` 형태로 표시됨
+- `Direct connection`은 IPv6 환경에서 사용할 수 있지만, 로컬 개발 환경에서는 `Session pooler`가 더 안정적일 수 있음
+- 현재 DB 영속화 대상은 `Departure`이며, 병원 실시간 데이터는 계속 공공데이터 API + Redis 캐시를 사용
+
+### 2-2. Gemini API 연동
 
 Gemini 연동은 기본적으로 꺼져 있고, 아래 환경변수를 설정하면 [`/api/ai/guide`](backend/src/main/java/com/supersave/backend/ai/controller/AiGuideController.java)에서 실응답을 사용합니다.
 
