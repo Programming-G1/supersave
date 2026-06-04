@@ -160,13 +160,13 @@ npm run dev
 - **설정 및 실행**:
   - `frontend/.env` 파일 내 `VITE_KAKAO_MAP_API_KEY` 키에 Kakao Developers에서 발급받은 JavaScript API Key를 설정하여 구동합니다.
 
-  - **내비게이션 통합**: Kakao 내비 API에서 추천 경로 및 도로별 교통정보(vertexes, trafficSpeed, trafficState)를 받아 프론트에 표시합니다.
-  - **주요 구현 기능**:
-    - 추천 경로 및 도로별 교통정보 반환 (`/api/navigation/route`)
-    - 도로별 색상 코딩 Polylines (trafficState 기반)
-    - Dashboard 트래픽 토글 및 도로별 상세 패널(거리, 추정 소요시간)
-  - **설정 및 실행**:
-    - backend/.env에 `KAKAO_REST_API_KEY` 설정
+- **내비게이션 통합**: Kakao 내비 API에서 추천 경로 및 도로별 교통정보(vertexes, trafficSpeed, trafficState)를 받아 프론트에 표시합니다.
+- **주요 구현 기능**:
+  - 추천 경로 및 도로별 교통정보 반환 (`/api/navigation/route`)
+  - 도로별 색상 코딩 Polylines (trafficState 기반)
+  - Dashboard 트래픽 토글 및 도로별 상세 패널(거리, 추정 소요시간)
+- **설정 및 실행**:
+  - backend/.env에 `KAKAO_REST_API_KEY` 설정
 
 ## 공공데이터 API 연동
 
