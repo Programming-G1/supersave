@@ -13,6 +13,7 @@ import type {
   HospitalDetail,
   HospitalSummary,
   LocationSearchResult,
+  NavigationRoute,
   RecommendationRequest,
   RecommendationResult,
 } from '@/types';
@@ -111,6 +112,40 @@ export async function searchLocations(query: string) {
   return (await apiClient.get<LocationSearchResult[]>('/api/locations/search', {
     params: { query },
   })).data;
+}
+
+export async function fetchNavigationRoute(params: {
+  originLat: number;
+  originLng: number;
+  destinationLat: number;
+  destinationLng: number;
+}) {
+  if (useMockApi) {
+    await wait();
+
+    const path = [
+      { lat: params.originLat, lng: params.originLng },
+      {
+        lat: (params.originLat + params.destinationLat) / 2,
+        lng: (params.originLng + params.destinationLng) / 2,
+      },
+      { lat: params.destinationLat, lng: params.destinationLng },
+    ];
+
+    const distanceKm =
+      Math.round(
+        Math.hypot(params.originLat - params.destinationLat, params.originLng - params.destinationLng) * 100 * 10
+      ) / 10;
+
+    return {
+      distanceKm,
+      durationMinutes: Math.max(3, Math.round(distanceKm * 3)),
+      path,
+      roads: [],
+    } satisfies NavigationRoute;
+  }
+
+  return (await apiClient.get<NavigationRoute>('/api/navigation/route', { params })).data;
 }
 
 export async function fetchRecommendations(request: RecommendationRequest) {
