@@ -3,6 +3,7 @@ package com.supersave.backend.departure.repository;
 import com.supersave.backend.common.exception.NotFoundException;
 import com.supersave.backend.departure.entity.DepartureRegistration;
 import com.supersave.backend.departure.entity.DepartureStatus;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Repository
+@Profile("!postgres")
 public class InMemoryDepartureRepository implements DepartureRepository {
 
     // Keep demo departure state stable even if Spring recreates the repository bean during dev restarts.
