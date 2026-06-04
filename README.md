@@ -84,9 +84,11 @@ mvn spring-boot:run
 
 ### 2-1. PostgreSQL / Supabase 영속화 모드
 
-이송 등록과 상태 변경 데이터를 DB에 남기려면 `postgres` 프로필로 실행합니다. 가장 쉬운 방법은 `backend/.env.example`을 복사해 `backend/.env`를 만든 뒤 값을 채우는 것입니다.
+이송 등록과 상태 변경 데이터를 DB에 남기려면 `postgres` 프로필로 실행합니다. `backend/.env.example`을 복사해 `backend/.env`를 만든 뒤 값을 채우면 됩니다.
 
 Supabase를 사용할 때는 Spring Boot 같은 지속 실행 서버 특성상 보통 `Session pooler`를 먼저 사용하면 편합니다. 로컬 IPv4 환경에서 가장 무난하고, `Transaction pooler`는 이 프로젝트 기본값으로 권장하지 않습니다.
+
+- 먼저 예시 파일을 복사합니다:
 
 ```bash
 cp backend/.env.example backend/.env

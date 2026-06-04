@@ -38,7 +38,7 @@ docker run -d -p 6379:6379 --name supersave-redis redis:latest
 
 ### 3️⃣ 환경 변수 설정
 
-`backend/.env` 파일이 없으면 생성합니다:
+`backend/.env` 파일이 없으면 예시 파일을 복사해 생성합니다.
 
 ```bash
 cp backend/.env.example backend/.env
