@@ -6,7 +6,7 @@ spring:
       - optional:file:.env[.properties]
       - optional:file:backend/.env[.properties]
   profiles:
-    active: api
+    active: postgres
   data:
     redis:
       host: ${REDIS_HOST:localhost}

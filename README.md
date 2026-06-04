@@ -78,7 +78,7 @@ cd backend
 mvn spring-boot:run
 ```
 
-- 기본값은 `application.yml`의 `api` 프로필이며, `backend/.env`에 `spring.profiles.active=postgres`를 넣으면 PostgreSQL/Supabase 모드로 실행됨
+- 기본값은 `application.yml`의 `postgres` 프로필이며, `backend/.env`에 DB 연결값을 채우면 바로 PostgreSQL/Supabase 모드로 실행됨
 - DB를 연결하지 않은 상태에서는 출발 등록(`Departure`) 데이터가 인메모리로 유지됨
 - 이 상태에서는 API만 열리고 `/` 화면은 정적 파일을 동기화한 뒤에만 제공
 
@@ -159,7 +159,7 @@ npm run dev
   - 선택된 병원과 사용자 간의 가상 이송 경로 시각화 (`Polyline` 그리기)
 - **설정 및 실행**:
   - `frontend/.env` 파일 내 `VITE_KAKAO_MAP_API_KEY` 키에 Kakao Developers에서 발급받은 JavaScript API Key를 설정하여 구동합니다.
-
+ 
 - **내비게이션 통합**: Kakao 내비 API에서 추천 경로 및 도로별 교통정보(vertexes, trafficSpeed, trafficState)를 받아 프론트에 표시합니다.
 - **주요 구현 기능**:
   - 추천 경로 및 도로별 교통정보 반환 (`/api/navigation/route`)
@@ -168,6 +168,7 @@ npm run dev
 - **설정 및 실행**:
   - backend/.env에 `KAKAO_REST_API_KEY` 설정
 
+ 
 ## 공공데이터 API 연동
 
 - **연동 범위**: 국립중앙의료원 전국 응급의료기관 정보 조회 서비스에서 전국 응급의료기관 목록과 실시간 가용 병상 정보를 조회합니다.
