@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { mockHospitals, mockPatient, congestionData, generateAIAnalysis } from '../data/mockData';
 import { Hospital, HospitalRecommendation } from '../types';
-import { fetchHospitals, fetchRecommendations, requestAiTriage, searchLocations } from '../../api';
+import { fetchHospitals, fetchNavigationRoute, fetchRecommendations, requestAiTriage, searchLocations } from '../../api';
 import type {
   AiTriageResponse,
   HospitalSummary,
   LocationSearchResult,
   RecommendationResult as ApiRecommendationResult,
+  RoadSegment,
 } from '../../types';
 import Map from '../components/Map';
 import HospitalCard from '../components/HospitalCard';
@@ -15,6 +16,7 @@ import { inferSeverityFromSymptoms } from '../utils/severity';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import { Toggle } from '../components/ui/toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Input } from '../components/ui/input';
 import {
@@ -161,6 +163,10 @@ export default function Dashboard() {
   const [locationSearchResults, setLocationSearchResults] = useState<LocationSearchResult[]>([]);
   const [isLocationSearchLoading, setIsLocationSearchLoading] = useState(false);
   const [locationSearchError, setLocationSearchError] = useState<string | null>(null);
+  const [routePath, setRoutePath] = useState<{ lat: number; lng: number }[]>([]);
+  const [routeRoads, setRouteRoads] = useState<RoadSegment[]>([]);
+  const [routeMetaByHospitalId, setRouteMetaByHospitalId] = useState<Record<string, { distanceKm: number; durationMinutes: number }>>({});
+  const [showTrafficPanel, setShowTrafficPanel] = useState(false);
 
   const resetRecommendationResult = () => {
     setSelectedHospitalId(null);
@@ -168,6 +174,9 @@ export default function Dashboard() {
     setHasRecommendationRequested(false);
     setRecommendationError(null);
     setTriageResult(null);
+    setRoutePath([]);
+    setRouteRoads([]);
+    setRouteMetaByHospitalId({});
   };
 
   const updatePatientForm = (nextForm: typeof patientForm) => {
@@ -307,6 +316,26 @@ export default function Dashboard() {
     return Math.round(R * c * 10) / 10; // 소수점 첫째자리까지 반올림
   };
 
+  function getTrafficColor(trafficState: number): string {
+    switch (trafficState) {
+      case 1: return '#22c55e'; // 원활 - green
+      case 2: return '#f59e0b'; // 서행 - amber
+      case 3: return '#f97316'; // 지체 - orange
+      case 4: return '#ef4444'; // 정체 - red
+      default: return '#3b82f6'; // 정보없음 - blue
+    }
+  }
+
+  function getTrafficLabel(trafficState: number): string {
+    switch (trafficState) {
+      case 1: return '원활';
+      case 2: return '서행';
+      case 3: return '지체';
+      case 4: return '정체';
+      default: return '정보없음';
+    }
+  }
+
   // 실시간 사용자 위치 및 교통상황 기반 병원 데이터 계산
   const hospitals = React.useMemo(() => {
     return sourceHospitals.map((hospital) => {
@@ -349,14 +378,74 @@ export default function Dashboard() {
       // 평균 시속 30km (1km당 2분) 기준 이동 시간 계산
       const baseTimePerKm = 2.0;
       const estimatedTime = Math.round(drivingDistance * baseTimePerKm * trafficFactor * congestionFactor);
+      const routeMeta = routeMetaByHospitalId[hospital.id];
 
       return {
         ...hospital,
-        distance: drivingDistance,
-        estimatedTime: Math.max(estimatedTime, 2), // 최소 2분 이상
+        distance: routeMeta?.distanceKm ?? drivingDistance,
+        estimatedTime: routeMeta?.durationMinutes ?? Math.max(estimatedTime, 2), // 최소 2분 이상
       };
     });
-  }, [sourceHospitals, userLocation]);
+  }, [routeMetaByHospitalId, sourceHospitals, userLocation]);
+
+  useEffect(() => {
+    const selectedHospital = selectedHospitalId
+      ? sourceHospitals.find((hospital) => hospital.id === selectedHospitalId)
+      : undefined;
+
+    if (!selectedHospital || !userLocation) {
+      setRoutePath([]);
+      setRouteRoads([]);
+      return;
+    }
+
+    const targetHospital = selectedHospital;
+
+    let cancelled = false;
+
+    async function loadRoute() {
+      try {
+        const route = await fetchNavigationRoute({
+          originLat: userLocation.lat,
+          originLng: userLocation.lng,
+          destinationLat: targetHospital.coordinates.lat,
+          destinationLng: targetHospital.coordinates.lng,
+        });
+
+        if (!cancelled) {
+          setRoutePath(route.path);
+          setRouteRoads(route.roads ?? []);
+          setRouteMetaByHospitalId((current) => {
+            const currentRoute = current[targetHospital.id];
+            if (
+              currentRoute?.distanceKm === route.distanceKm &&
+              currentRoute?.durationMinutes === route.durationMinutes
+            ) {
+              return current;
+            }
+
+            return {
+              ...current,
+              [targetHospital.id]: {
+                distanceKm: route.distanceKm,
+                durationMinutes: route.durationMinutes,
+              },
+            };
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setRoutePath([]);
+          setRouteRoads([]);
+        }
+      }
+    }
+
+    loadRoute();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedHospitalId, sourceHospitals, userLocation]);
 
   // 증상 제출 핸들러
   const handleSymptomSubmit = async (data: PatientSymptomData) => {
@@ -1099,6 +1188,8 @@ export default function Dashboard() {
                 selectedHospitalId={selectedHospitalId || undefined}
                 onHospitalClick={setSelectedHospitalId}
                 userLocation={userLocation}
+                routePath={routePath}
+                routeRoads={routeRoads}
               />
             </div>
 
@@ -1140,7 +1231,40 @@ export default function Dashboard() {
                     <option value="beds">가용병상순</option>
                   </select>
                 </div>
+
+                <div className="flex items-center gap-2">
+                  {/* 교통상황 토글 */}
+                  <Toggle
+                    aria-pressed={showTrafficPanel}
+                    onPressedChange={(state) => setShowTrafficPanel(state)}
+                    className="text-sm"
+                  >
+                    교통상황 보기
+                  </Toggle>
+                </div>
               </Card>
+
+              {/* 교통상황 상세 패널 (토글) */}
+              {showTrafficPanel && (
+                <Card className="p-3">
+                  <h4 className="font-semibold mb-2">경로 교통 상세</h4>
+                  {routeRoads.length === 0 ? (
+                    <p className="text-sm text-gray-500">선택된 경로에 교통 정보가 없습니다.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {routeRoads.map((road, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <div style={{ width: 24, height: 8, background: getTrafficColor(road.trafficState), borderRadius: 4 }} />
+                            <span>{`구간 ${idx + 1} · ${getTrafficLabel(road.trafficState)}`}</span>
+                          </div>
+                          <div className="text-gray-600">{Math.round(road.trafficSpeed)} km/h</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              )}
 
               {/* 병원 리스트 */}
               <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
