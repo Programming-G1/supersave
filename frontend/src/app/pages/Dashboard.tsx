@@ -336,6 +336,20 @@ export default function Dashboard() {
     }
   }
 
+  /** vertexes 배열로부터 구간 거리(m)를 계산 */
+  function vertexesDistanceMeters(vertexes: number[]): number {
+  if (!vertexes || vertexes.length < 4) return 0;
+  let meters = 0;
+  for (let i = 0; i + 3 < vertexes.length; i += 2) {
+    const lng1 = vertexes[i];
+    const lat1 = vertexes[i + 1];
+    const lng2 = vertexes[i + 2];
+    const lat2 = vertexes[i + 3];
+    meters += calculateDistance(lat1, lng1, lat2, lng2) * 1000; // km -> m
+  }
+  return Math.round(meters);
+  }
+
   // 실시간 사용자 위치 및 교통상황 기반 병원 데이터 계산
   const hospitals = React.useMemo(() => {
     return sourceHospitals.map((hospital) => {
@@ -1252,15 +1266,28 @@ export default function Dashboard() {
                     <p className="text-sm text-gray-500">선택된 경로에 교통 정보가 없습니다.</p>
                   ) : (
                     <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {routeRoads.map((road, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2">
-                            <div style={{ width: 24, height: 8, background: getTrafficColor(road.trafficState), borderRadius: 4 }} />
-                            <span>{`구간 ${idx + 1} · ${getTrafficLabel(road.trafficState)}`}</span>
+                      {routeRoads.map((road, idx) => {
+                        const distanceMeters = vertexesDistanceMeters(road.vertexes || []);
+                        const timeMinutes = road.trafficSpeed && road.trafficSpeed > 0
+                          ? Math.max(1, Math.round((distanceMeters / 1000) / road.trafficSpeed * 60))
+                          : 0;
+
+                        return (
+                          <div key={idx} className="flex flex-col gap-1 text-sm">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div style={{ width: 24, height: 8, background: getTrafficColor(road.trafficState), borderRadius: 4 }} />
+                                <span>{`구간 ${idx + 1} · ${getTrafficLabel(road.trafficState)}`}</span>
+                              </div>
+                              <div className="text-gray-600">{Math.round(road.trafficSpeed)} km/h</div>
+                            </div>
+                            <div className="text-xs text-gray-500 flex justify-between">
+                              <span>{`거리 ${distanceMeters} m`}</span>
+                              <span>{`예상 소요 ${timeMinutes}분`}</span>
+                            </div>
                           </div>
-                          <div className="text-gray-600">{Math.round(road.trafficSpeed)} km/h</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </Card>
