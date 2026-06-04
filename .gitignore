@@ -11,3 +11,4 @@ backend/.env
 backend/.env.local
 figma-emergency-room/
 supersave-repo/
+frontend/node
