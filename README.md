@@ -78,7 +78,7 @@ cd backend
 mvn spring-boot:run
 ```
 
-- 기본값은 `application.yml`의 `api` 프로필이며, `backend/.env`에 `spring.profiles.active=postgres`를 넣으면 PostgreSQL/Supabase 모드로 실행됨
+- 기본값은 `application.yml`의 `postgres` 프로필이며, `backend/.env`에 DB 연결값을 채우면 바로 PostgreSQL/Supabase 모드로 실행됨
 - DB를 연결하지 않은 상태에서는 출발 등록(`Departure`) 데이터가 인메모리로 유지됨
 - 이 상태에서는 API만 열리고 `/` 화면은 정적 파일을 동기화한 뒤에만 제공
 
