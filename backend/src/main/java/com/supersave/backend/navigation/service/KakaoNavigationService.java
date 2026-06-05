@@ -87,7 +87,8 @@ public class KakaoNavigationService {
 
         return new NavigationRouteResponse(
                 Math.round(route.summary().distance() / 100.0) / 10.0,
-                Math.max(1, (int) Math.round(route.summary().duration() / 60000.0)),
+                // Kakao navigation summary.duration is returned in seconds, not milliseconds.
+                Math.max(1, (int) Math.round(route.summary().duration() / 60.0)),
                 path,
                 roadSegments
         );
