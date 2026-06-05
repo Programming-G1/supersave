@@ -62,8 +62,18 @@ supersave/
 
 ### 1. 통합 실행
 
+macOS / Linux (zsh/bash):
+
 ```bash
 ./scripts/sync-frontend-to-backend.sh
+cd backend
+mvn spring-boot:run
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\sync-frontend-to-backend.ps1
 cd backend
 mvn spring-boot:run
 ```
