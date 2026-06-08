@@ -51,6 +51,7 @@ public class DepartureService {
 
     public List<DepartureQueueItemResponse> findByHospitalId(Long hospitalId) {
         return departureRepository.findByHospitalId(hospitalId).stream()
+                .filter(registration -> registration.status() != DepartureStatus.CANCELLED)
                 .sorted(Comparator.comparing(DepartureRegistration::createdAt).reversed())
                 .map(this::toQueueItem)
                 .toList();

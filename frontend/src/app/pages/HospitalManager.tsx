@@ -162,7 +162,9 @@ export default function HospitalManager() {
     };
   }, [selectedHospitalId]);
 
-  const filteredPatients = arrivingPatients.filter((patient) => {
+  const visiblePatients = arrivingPatients.filter((patient) => patient.status !== 'CANCELLED');
+
+  const filteredPatients = visiblePatients.filter((patient) => {
     const normalizedQuery = searchQuery.toLowerCase();
     return (
       patient.patientName.toLowerCase().includes(normalizedQuery) ||
@@ -178,9 +180,12 @@ export default function HospitalManager() {
   async function handleUpdateStatus(patient: DepartureQueueItem, status: DepartureStatus) {
     try {
       const updated = await updateDepartureStatus(patient.registrationId, status);
-      setArrivingPatients((prev) =>
-        prev.map((item) => (item.registrationId === updated.registrationId ? updated : item)),
-      );
+      setArrivingPatients((prev) => {
+        if (status === 'CANCELLED') {
+          return prev.filter((item) => item.registrationId !== updated.registrationId);
+        }
+        return prev.map((item) => (item.registrationId === updated.registrationId ? updated : item));
+      });
       toast.success(status === 'ACCEPTED' ? '환자 접수가 승인되었습니다.' : '예약이 취소되었습니다.');
     } catch {
       toast.error('상태 변경에 실패했습니다.');

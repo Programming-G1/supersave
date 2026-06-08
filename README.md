@@ -111,6 +111,7 @@ spring.profiles.active=postgres
 DB_URL=jdbc:postgresql://aws-REGION.pooler.supabase.com:5432/postgres?sslmode=require
 DB_USERNAME=postgres.YOUR_PROJECT_REF
 DB_PASSWORD=YOUR_SUPABASE_DB_PASSWORD
+DB_MAX_POOL_SIZE=3
 ```
 
 ```bash
@@ -120,6 +121,7 @@ mvn spring-boot:run
 
 - `backend/src/main/resources/application-postgres.yml`에 PostgreSQL 프로필이 포함되어 있음
 - Supabase Connect 화면에서 `Session pooler`를 선택하면 host/user 값이 `pooler.supabase.com` 형태로 표시됨
+- 공유 Supabase를 쓸 때는 `DB_MAX_POOL_SIZE=3` 정도로 낮춰두는 편이 `EMAXCONNSESSION` 오류를 줄이는 데 유리함
 - `Direct connection`은 IPv6 환경에서 사용할 수 있지만, 로컬 개발 환경에서는 `Session pooler`가 더 안정적일 수 있음
 - 현재 DB 영속화 대상은 `Departure`이며, 병원 실시간 데이터는 계속 공공데이터 API + Redis 캐시를 사용
 

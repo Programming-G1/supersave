@@ -20,6 +20,47 @@ import type {
 
 const wait = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 const toSummary = (hospital: HospitalDetail): HospitalSummary => ({ ...hospital });
+
+function containsAny(source: string, keywords: string[]) {
+  return keywords.some((keyword) => source.includes(keyword));
+}
+
+function isSimpleHangoverSymptoms(symptoms: string) {
+  if (!containsAny(symptoms, ['숙취', '과음', '음주', '술마시', '술마신', '술먹', '만취'])) {
+    return false;
+  }
+
+  return !containsAny(symptoms, [
+    '의식',
+    '의식저하',
+    '경련',
+    '쇼크',
+    '심정지',
+    '호흡없',
+    '호흡 없음',
+    '흉통',
+    '가슴',
+    '호흡곤란',
+    '숨',
+    '마비',
+    '뇌졸중',
+    '실신',
+    '복통',
+    '출혈',
+    '토혈',
+    '혈변',
+    '검은변',
+    '흑변',
+  ]);
+}
+
+function inferHangoverSeverity(symptoms: string): AiTriageResponse['severityLevel'] {
+  if (containsAny(symptoms, ['두통', '구토', '메스꺼', '어지', '속쓰림', '갈증'])) {
+    return 'KTAS4';
+  }
+  return 'KTAS5';
+}
+
 let mockDepartureQueue: DepartureQueueItem[] = [
   {
     registrationId: 1001,
@@ -275,6 +316,8 @@ export async function requestAiTriage(request: AiTriageRequest) {
     severityLevel = 'KTAS2';
   } else if (symptoms.includes('복통') || symptoms.includes('외상') || symptoms.includes('골절')) {
     severityLevel = 'KTAS3';
+  } else if (isSimpleHangoverSymptoms(symptoms)) {
+    severityLevel = inferHangoverSeverity(symptoms);
   } else if (symptoms.includes('발열') || symptoms.includes('두통')) {
     severityLevel = 'KTAS4';
   } else {

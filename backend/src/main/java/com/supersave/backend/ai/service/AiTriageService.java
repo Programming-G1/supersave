@@ -36,6 +36,11 @@ public class AiTriageService {
     }
 
     public AiTriageResponse triage(AiTriageRequest request) {
+        String symptom = normalizeSymptomText(request.symptomText());
+        if (isSimpleHangoverCase(request, symptom)) {
+            return fallbackTriage(request, false);
+        }
+
         if (!geminiConfigured()) {
             return fallbackTriage(request, false);
         }
@@ -85,6 +90,7 @@ public class AiTriageService {
                 위 입력만 근거로 응급실 이송 의사결정 보조용 KTAS 참고 단계를 추정하세요.
                 의료 진단이나 확정 판정이 아니라 추천 로직에 넣을 참고 중증도입니다.
                 "해당한다", "확정된다", "진단된다"처럼 확정 표현은 쓰지 말고 "가능성이 있어", "참고 단계로 추정"처럼 표현하세요.
+                단순 숙취/과음 후 두통, 메스꺼움, 어지러움 정도이고 의식저하, 호흡곤란, 경련, 흉통, 심한 복통, 출혈이 없으면 과도하게 높은 KTAS를 주지 마세요.
                 반드시 JSON 객체만 출력하세요. 마크다운 코드블록은 쓰지 마세요.
 
                 JSON 스키마:
@@ -156,7 +162,7 @@ public class AiTriageService {
     }
 
     private AiTriageResponse fallbackTriage(AiTriageRequest request, boolean aiUsed) {
-        String symptom = request.symptomText() == null ? "" : request.symptomText().toLowerCase(Locale.ROOT);
+        String symptom = normalizeSymptomText(request.symptomText());
         String severity = "KTAS3";
 
         if (containsAny(symptom, "의식", "경련", "쇼크", "심정지", "호흡없", "대량출혈")) {
@@ -165,6 +171,8 @@ public class AiTriageService {
             severity = "KTAS2";
         } else if (containsAny(symptom, "복통", "외상", "골절", "출혈", "화상")) {
             severity = "KTAS3";
+        } else if (isSimpleHangoverCase(request, symptom)) {
+            severity = inferHangoverSeverity(symptom);
         } else if (containsAny(symptom, "발열", "두통", "구토", "어지러움")) {
             severity = "KTAS4";
         } else {
@@ -183,14 +191,19 @@ public class AiTriageService {
             severity = moreSevere(severity, "KTAS3");
         }
 
+        String reasoning = aiUsed
+                ? "AI 응답을 바탕으로 중증도를 추정했습니다."
+                : "Gemini 사용이 불가능해 증상 키워드와 활력징후 기반 규칙으로 추정했습니다.";
+        if (isSimpleHangoverCase(request, symptom)) {
+            reasoning = "단순 숙취/과음 표현이고 의식저하, 호흡곤란 같은 위험 징후가 없어 낮은 우선순위로 추정했습니다.";
+        }
+
         return new AiTriageResponse(
                 severity,
                 request.symptomText(),
                 inferDepartments(symptom),
                 inferWarnings(severity),
-                aiUsed
-                        ? "AI 응답을 바탕으로 중증도를 추정했습니다."
-                        : "Gemini 사용이 불가능해 증상 키워드와 활력징후 기반 규칙으로 추정했습니다.",
+                reasoning,
                 aiUsed
         );
     }
@@ -254,6 +267,40 @@ public class AiTriageService {
             }
         }
         return false;
+    }
+
+    private String normalizeSymptomText(String symptomText) {
+        return symptomText == null ? "" : symptomText.toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isSimpleHangoverCase(AiTriageRequest request, String symptom) {
+        if (!containsAny(symptom, "숙취", "과음", "음주", "술마시", "술마신", "술먹", "만취")) {
+            return false;
+        }
+
+        if (containsAny(
+                symptom,
+                "의식", "경련", "쇼크", "심정지", "호흡없", "대량출혈",
+                "흉통", "가슴", "호흡곤란", "숨", "뇌졸중", "마비", "실신",
+                "복통", "토혈", "혈변", "검은변", "흑변"
+        )) {
+            return false;
+        }
+
+        return !hasUnstableVitals(request);
+    }
+
+    private boolean hasUnstableVitals(AiTriageRequest request) {
+        return (request.oxygenSaturation() != null && request.oxygenSaturation() < 94)
+                || (request.heartRate() != null && (request.heartRate() < 50 || request.heartRate() > 130))
+                || (request.temperature() != null && request.temperature() >= 39.0);
+    }
+
+    private String inferHangoverSeverity(String symptom) {
+        if (containsAny(symptom, "두통", "구토", "메스꺼", "어지", "속쓰림", "갈증")) {
+            return "KTAS4";
+        }
+        return "KTAS5";
     }
 
     private String moreSevere(String current, String candidate) {

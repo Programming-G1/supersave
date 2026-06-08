@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
 import { ChatMessage } from '../types';
+import { inferSeverityFromSymptoms } from '../utils/severity';
 import type { LocationSearchResult, RecommendationResult, SeverityLevel } from '../../types';
 
 interface AIAssistantProps {
@@ -33,32 +34,7 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
   const [assistantContext, setAssistantContext] = useState<AssistantContext>({});
 
   const inferSeverityLevel = (userMessage: string): SeverityLevel => {
-    const lowerMessage = userMessage.toLowerCase();
-
-    if (
-      lowerMessage.includes('의식') ||
-      lowerMessage.includes('심정지') ||
-      lowerMessage.includes('호흡 없음') ||
-      lowerMessage.includes('대량 출혈')
-    ) {
-      return 'KTAS1';
-    }
-
-    if (
-      lowerMessage.includes('가슴') ||
-      lowerMessage.includes('흉부') ||
-      lowerMessage.includes('심장') ||
-      lowerMessage.includes('호흡곤란') ||
-      lowerMessage.includes('뇌졸중')
-    ) {
-      return 'KTAS2';
-    }
-
-    if (lowerMessage.includes('통증') || lowerMessage.includes('열') || lowerMessage.includes('어지러움')) {
-      return 'KTAS3';
-    }
-
-    return 'KTAS4';
+    return inferSeverityFromSymptoms(userMessage);
   };
 
   const normalizeMessage = (userMessage: string) => userMessage.trim().toLowerCase().replace(/\s+/g, '');
@@ -72,7 +48,11 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
       '통증',
       '열',
       '발열',
+      '숙취',
+      '과음',
+      '음주',
       '어지러움',
+      '메스꺼움',
       '구토',
       '호흡',
       '숨',
@@ -80,6 +60,7 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
       '흉부',
       '심장',
       '의식',
+      '실신',
       '출혈',
       '경련',
       '쇼크',

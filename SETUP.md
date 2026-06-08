@@ -51,6 +51,7 @@ spring.profiles.active=postgres
 DB_URL=jdbc:postgresql://aws-REGION.pooler.supabase.com:5432/postgres?sslmode=require
 DB_USERNAME=postgres.YOUR_PROJECT_REF
 DB_PASSWORD=YOUR_SUPABASE_DB_PASSWORD
+DB_MAX_POOL_SIZE=3
 ```
 
 ### 4️⃣ 백엔드 실행
@@ -74,6 +75,7 @@ mvn spring-boot:run
 
 - PostgreSQL 프로필 설정 파일: `backend/src/main/resources/application-postgres.yml`
 - Supabase를 쓰는 경우 보통 `Session pooler`를 먼저 사용하면 됩니다.
+- 공유 Supabase를 쓰는 경우 `DB_MAX_POOL_SIZE=3` 정도로 낮춰두면 session pool 초과를 덜 만납니다.
 - `Transaction pooler`는 이 프로젝트의 Spring 서버 기본값으로 권장하지 않습니다.
 - `Direct connection`은 IPv6 환경이면 사용할 수 있지만, 로컬 IPv4 환경에서는 연결이 안 될 수 있습니다.
 - 현재 DB 영속화 대상: 출발 등록/상태(`Departure`)

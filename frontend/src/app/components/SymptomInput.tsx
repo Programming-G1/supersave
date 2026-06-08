@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useMode } from '../contexts/ModeContext';
 import type { Patient } from '../types';
+import { inferSeverityFromSymptoms } from '../utils/severity';
 
 interface SymptomInputProps {
   onSubmit: (data: PatientSymptomData) => void | Promise<void>;
@@ -91,18 +92,7 @@ export default function SymptomInput({
 
     // AI 기반 중증도 판단 시뮬레이션
     setTimeout(() => {
-      const symptoms = formData.symptoms.toLowerCase();
-      let suggestedLevel: Patient['severity'] = 'KTAS3';
-
-      if (symptoms.includes('의식') || symptoms.includes('경련') || symptoms.includes('쇼크')) {
-        suggestedLevel = 'KTAS1';
-      } else if (symptoms.includes('흉통') || symptoms.includes('호흡곤란') || symptoms.includes('뇌졸중')) {
-        suggestedLevel = 'KTAS2';
-      } else if (symptoms.includes('복통') || symptoms.includes('외상') || symptoms.includes('골절')) {
-        suggestedLevel = 'KTAS3';
-      } else if (symptoms.includes('발열') || symptoms.includes('두통')) {
-        suggestedLevel = 'KTAS4';
-      }
+      let suggestedLevel: Patient['severity'] = inferSeverityFromSymptoms(formData.symptoms);
 
       // 활력징후 고려
       if (formData.heartRate && (formData.heartRate < 50 || formData.heartRate > 120)) {
